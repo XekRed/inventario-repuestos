@@ -1,0 +1,62 @@
+# ============================================================
+# .gitignore — Sistema de Inventario
+# ============================================================
+# REGLA DE ORO: Nunca subir datos del negocio ni archivos generados.
+
+# --- Base de datos SQLite (datos reales del negocio) ----------
+*.db
+*.db-shm
+*.db-wal
+database/*.db
+database/*.db-shm
+database/*.db-wal
+
+# --- Imágenes y logos (datos del negocio) ---------------------
+/imagenes_repuestos/
+/inventario_img/
+/logos/
+/pedidos_img/
+
+# --- Reportes generados ---------------------------------------
+/reportes/
+
+# --- Archivos de log y debug ----------------------------------
+debug_log.txt
+*.log
+*.txt.bak
+
+# --- Python ---------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# --- Entorno virtual ------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDEs y editores ------------------------------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- Windows --------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Archivos temporales de sistema ---------------------------
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# --- Config local (si tiene credenciales) ---------------------
+config/config_local.ini
+config/*.secret
