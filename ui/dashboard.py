@@ -28,6 +28,7 @@ from ui.app import (  # noqa: E402
     COLORS, FONT_FAMILY,
 )
 from ui.proveedores import ProveedoresPage  # noqa: E402
+from utils.updater import abrir_actualizador, get_local_version  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tema
@@ -1057,6 +1058,7 @@ class DashboardApp(ctk.CTk):
         ("🏭",  "Proveedores",        "proveedores",    False),
         ("📋",  "Deudores (Fiado)",   "deudores",       False),
         ("🔔",  "Notificaciones",     "notificaciones", False),
+        ("⚙️",  "Configuración",      "configuracion",  False),
     ]
 
     def __init__(self):
@@ -1177,7 +1179,7 @@ class DashboardApp(ctk.CTk):
         # Badge de usuario (parte baja del sidebar)
         rol_color = COLORS["accent"] if self._rol == "Admin" else COLORS["success"]
         badge = ctk.CTkFrame(self._sidebar, fg_color=COLORS["bg_card"], corner_radius=12)
-        badge.grid(row=8, column=0, padx=10, pady=(0, 16), sticky="sew")
+        badge.grid(row=9, column=0, padx=10, pady=(0, 16), sticky="sew")
 
         ctk.CTkLabel(
             badge, text=f"👤  {self._usuario_nombre}",
@@ -1201,6 +1203,7 @@ class DashboardApp(ctk.CTk):
         self._pages["deudores"] = DeudoresPage(self._content)
         self._pages["reportes"] = ReportesPage(self._content)
         self._pages["notificaciones"] = NotificacionesPage(self._content)
+        self._pages["configuracion"] = ConfiguracionPage(self._content, self)
 
         # Colocar todos en el mismo slot y ocultarlos
         for page in self._pages.values():
@@ -1286,3 +1289,114 @@ class DashboardApp(ctk.CTk):
                 text="  🔔  Notificaciones",
                 text_color=COLORS["text_primary"],
             )
+
+
+# ===========================================================================
+# Página: Configuración (con sistema de actualizaciones)
+# ===========================================================================
+
+class ConfiguracionPage(ctk.CTkFrame):
+    """Página de configuración del sistema con actualizaciones automáticas."""
+
+    def __init__(self, parent, dashboard_ref, **kwargs):
+        super().__init__(parent, fg_color=COLORS["bg_root"], corner_radius=0, **kwargs)
+        self._dash = dashboard_ref
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self._build()
+
+    def _build(self):
+        # ── Banner ────────────────────────────────────────────────────
+        banner = ctk.CTkFrame(self, fg_color="#0a0d1a", corner_radius=0, height=110)
+        banner.grid(row=0, column=0, sticky="ew")
+        banner.grid_propagate(False)
+        banner.grid_columnconfigure(0, weight=1)
+
+        inner = ctk.CTkFrame(banner, fg_color="transparent")
+        inner.grid(row=0, column=0, padx=28, pady=0, sticky="nsew")
+        inner.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(inner, text="⚙️  Configuración del Sistema",
+                     font=(F, 26, "bold"), text_color=COLORS["accent"],
+                     anchor="w").grid(row=0, column=0, pady=(20, 0), sticky="w")
+        ctk.CTkLabel(inner, text="Gestiona las actualizaciones y preferencias del programa",
+                     font=(F, 12), text_color=COLORS["text_muted"],
+                     anchor="w").grid(row=1, column=0, pady=(2, 0), sticky="w")
+
+        # ── Contenido scrollable ──────────────────────────────────────
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
+        scroll.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
+        scroll.grid_columnconfigure(0, weight=1)
+
+        # ── Sección: Versión y Actualizaciones ────────────────────────
+        self._seccion(scroll, 0, "⬇️  Actualizaciones Automáticas")
+
+        card = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+        card.grid(row=1, column=0, padx=28, pady=(0, 8), sticky="ew")
+        card.grid_columnconfigure(1, weight=1)
+
+        # Icono grande
+        ctk.CTkLabel(card, text="🚀", font=(F, 52)).grid(
+            row=0, column=0, rowspan=3, padx=(24, 16), pady=24, sticky="n")
+
+        ctk.CTkLabel(card, text="Actualización desde GitHub",
+                     font=(F, 16, "bold"), text_color=COLORS["text_primary"],
+                     anchor="w").grid(row=0, column=1, padx=(0, 20), pady=(24, 2), sticky="w")
+
+        local_v = get_local_version()
+        ctk.CTkLabel(card, text=f"Versión instalada actualmente: {local_v}",
+                     font=(F, 12), text_color=COLORS["text_muted"],
+                     anchor="w").grid(row=1, column=1, padx=(0, 20), pady=0, sticky="w")
+
+        ctk.CTkLabel(card,
+                     text="El programa comprobará si hay una nueva versión disponible en GitHub.\n"
+                          "Si existe, descargará los cambios y se reiniciará automáticamente.",
+                     font=(F, 11), text_color=COLORS["text_muted"],
+                     anchor="w", justify="left").grid(
+            row=2, column=1, padx=(0, 20), pady=(4, 0), sticky="w")
+
+        ctk.CTkButton(
+            card, text="🔍  Buscar Actualizaciones",
+            font=(F, 13, "bold"), height=42, width=220,
+            fg_color=COLORS["accent"], hover_color="#3a6fd8",
+            text_color="#fff", corner_radius=12,
+            command=self._on_buscar_actualizacion,
+        ).grid(row=3, column=0, columnspan=2, padx=24, pady=(12, 24), sticky="w")
+
+        # ── Sección: Info del sistema ─────────────────────────────────
+        self._seccion(scroll, 2, "ℹ️  Información del Sistema")
+
+        info_card = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+        info_card.grid(row=3, column=0, padx=28, pady=(0, 8), sticky="ew")
+        info_card.grid_columnconfigure(1, weight=1)
+
+        import sys as _sys
+        import platform
+        info_items = [
+            ("Versión del sistema",    local_v),
+            ("Repositorio",            "github.com/XekRed/inventario-repuestos"),
+            ("Python",                 _sys.version.split()[0]),
+            ("Sistema Operativo",      platform.system() + " " + platform.release()),
+        ]
+        for i, (label, val) in enumerate(info_items):
+            row_f = ctk.CTkFrame(info_card, fg_color=COLORS["input"] if i % 2 == 0 else "transparent",
+                                  corner_radius=8)
+            row_f.grid(row=i, column=0, padx=12, pady=2, sticky="ew")
+            row_f.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(row_f, text=label, font=(F, 12), text_color=COLORS["text_muted"],
+                         anchor="w").grid(row=0, column=0, padx=16, pady=10, sticky="w")
+            ctk.CTkLabel(row_f, text=val, font=(F, 12, "bold"), text_color=COLORS["text_primary"],
+                         anchor="e").grid(row=0, column=1, padx=16, pady=10, sticky="e")
+
+        ctk.CTkFrame(info_card, fg_color="transparent", height=8).grid(
+            row=len(info_items), column=0)
+
+    # ------------------------------------------------------------------
+    def _seccion(self, parent, row, titulo):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.grid(row=row, column=0, padx=28, pady=(20, 8), sticky="ew")
+        ctk.CTkLabel(f, text=titulo, font=(F, 14, "bold"),
+                     text_color=COLORS["accent"], anchor="w").pack(side="left")
+
+    def _on_buscar_actualizacion(self):
+        abrir_actualizador(self._dash)
