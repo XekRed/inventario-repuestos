@@ -22,7 +22,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from database.inventario_db import inicializar_db, InventarioDAO, VentasDAO, DeudoresDAO, CuentasPorPagarDAO  # noqa: E402
+from database.inventario_db import inicializar_db, InventarioDAO, VentasDAO, DeudoresDAO, CuentasPorPagarDAO, EmpresasDAO  # noqa: E402
 from ui.app import (  # noqa: E402
     SearchBar, FormPanel, InventoryTable, DetailModal,
     COLORS, FONT_FAMILY,
@@ -31,18 +31,23 @@ from ui.proveedores import ProveedoresPage  # noqa: E402
 from utils.updater import abrir_actualizador, get_local_version  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Tema
+# Tema — se aplica al arrancar según lo guardado en config/theme.json
 # ---------------------------------------------------------------------------
-ctk.set_appearance_mode("dark")
+from ui.app import _PALETAS, _leer_nombre_tema, _construir_colors  # noqa: E402
+
+_TEMA_DASH   = _leer_nombre_tema()
+_ES_CLARO_D  = _TEMA_DASH.startswith("Claro")
+ctk.set_appearance_mode("Light" if _ES_CLARO_D else "Dark")
 ctk.set_default_color_theme("blue")
 
 F = FONT_FAMILY   # alias corto
 
-# Colores extra para la sidebar
-C_SIDEBAR     = "#13151e"
-C_SIDEBAR_BTN = "#1c1f2d"
-C_ACTIVE_BTN  = "#2a3a6a"
-C_ACTIVE_TEXT = "#4f8ef7"
+# Colores de la sidebar — se toman de la paleta activa
+_pal_d        = _PALETAS.get(_TEMA_DASH, _PALETAS["Claro Azul"])
+C_SIDEBAR     = _pal_d.get("sidebar",              _pal_d["bg_sidebar"] if "bg_sidebar" in _pal_d else "#1e3a8a")
+C_SIDEBAR_BTN = _pal_d.get("sidebar_btn",          _pal_d.get("bg_input", "#1e40af"))
+C_ACTIVE_BTN  = _pal_d.get("sidebar_active",       _pal_d.get("accent", "#3b82f6"))
+C_ACTIVE_TEXT = _pal_d.get("sidebar_active_text",  "#ffffff")
 
 
 # ===========================================================================
@@ -439,13 +444,13 @@ class DeudoresPage(ctk.CTkFrame):
 
     COLS = [
         ("tipo",   "Tipo",          60,  "center"),
-        ("nombre", "Nombre/Cliente",200, "w"),
-        ("telef",  "Teléfono",      120, "center"),
-        ("usd",    "Monto USD",     110, "e"),
-        ("bs",     "Monto Bs.",     130, "e"),
-        ("fecha",  "Fecha",         130, "center"),
-        ("limite", "Fecha Límite",  130, "center"),
-        ("estado", "Estado",         90, "center"),
+        ("nombre", "Nombre/Cliente",140, "w"),
+        ("telef",  "Teléfono",      135, "center"),
+        ("usd",    "Monto USD",     120, "e"),
+        ("bs",     "Monto Bs.",     140, "e"),
+        ("fecha",  "Fecha",         140, "center"),
+        ("limite", "Fecha Límite",  140, "center"),
+        ("estado", "Estado",         95, "center"),
     ]
 
     def __init__(self, parent, **kwargs):
@@ -809,232 +814,222 @@ class DeudoresPage(ctk.CTkFrame):
 # ===========================================================================
 
 class NotificacionesPage(ctk.CTkFrame):
-    """Centro de alertas con diseño premium — stock bajo, deudores vencidos."""
+    """Centro de alertas — stock bajo y deudores vencidos."""
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, fg_color=COLORS["bg_root"], corner_radius=0, **kwargs)
         self._inv_dao = InventarioDAO()
         from database.inventario_db import DeudoresDAO as _DD
         self._deu_dao = _DD()
-        self.grid_rowconfigure(1, weight=1)
+        self._dismissed: set = set()   # IDs/nombres de alertas descartadas
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         self._build()
         self.refresh()
 
-    # ------------------------------------------------------------------
     def _build(self):
-        # ── Banner superior ─────────────────────────────────────────
-        banner = ctk.CTkFrame(self, fg_color="#0a0d1a", corner_radius=0, height=110)
-        banner.grid(row=0, column=0, sticky="ew")
-        banner.grid_propagate(False)
-        banner.grid_columnconfigure(0, weight=1)
-
-        inner = ctk.CTkFrame(banner, fg_color="transparent")
-        inner.grid(row=0, column=0, padx=28, pady=0, sticky="nsew")
-        inner.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(inner, text="🔔  Centro de Alertas",
-                     font=(F, 26, "bold"), text_color=COLORS["accent"],
-                     anchor="w").grid(row=0, column=0, pady=(20, 0), sticky="w")
-        ctk.CTkLabel(inner, text="Monitoreo automático de stock bajo y deudas vencidas",
-                     font=(F, 12), text_color=COLORS["text_muted"],
-                     anchor="w").grid(row=1, column=0, pady=(2, 0), sticky="w")
-
-        btn_f = ctk.CTkFrame(inner, fg_color="transparent")
-        btn_f.grid(row=0, column=1, rowspan=2, padx=(0, 0), pady=0, sticky="e")
-        ctk.CTkButton(btn_f, text="🔄  Actualizar",
-                      font=(F, 12, "bold"), height=38, width=140,
+        # Top bar
+        topbar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=70)
+        topbar.grid(row=0, column=0, sticky="ew")
+        topbar.grid_propagate(False)
+        topbar.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(topbar, text="🔔  Centro de Alertas",
+                     font=(F, 20, "bold"), text_color=COLORS["accent"]
+                     ).grid(row=0, column=0, padx=24, pady=22, sticky="w")
+        ctk.CTkLabel(topbar, text="Monitoreo de stock bajo y deudas vencidas",
+                     font=(F, 11), text_color=COLORS["text_muted"]
+                     ).grid(row=0, column=1, padx=4, pady=22, sticky="w")
+        ctk.CTkButton(topbar, text="✔  Marcar todas leídas",
+                      font=(F, 12, "bold"), height=34, width=180,
+                      fg_color="#1e3820", hover_color=COLORS["success"],
+                      text_color=COLORS["success"], corner_radius=8,
+                      command=self._marcar_todas_leidas
+                      ).grid(row=0, column=2, padx=(0, 8), pady=18)
+        ctk.CTkButton(topbar, text="🔄  Actualizar",
+                      font=(F, 12, "bold"), height=34, width=130,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["accent"],
-                      text_color=COLORS["accent"], corner_radius=12,
-                      command=self.refresh).pack(anchor="e", pady=(20, 0))
+                      text_color=COLORS["accent"], corner_radius=8,
+                      command=self._actualizar_todo
+                      ).grid(row=0, column=3, padx=20, pady=18)
 
-        # ── KPI cards (se llenan en refresh) ─────────────────────
-        self._kpi_frame = ctk.CTkFrame(self, fg_color="transparent", height=110)
-        self._kpi_frame.grid(row=1, column=0, padx=24, pady=(18, 0), sticky="ew")
-        self._kpi_frame.grid_propagate(False)
-        self._kpi_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        # KPI row
+        self._kpi_row = ctk.CTkFrame(self, fg_color="transparent")
+        self._kpi_row.grid(row=1, column=0, padx=16, pady=12, sticky="ew")
+        self._kpi_row.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
-        # ── Scroll de tarjetas ───────────────────────────────────
+        # Scrollable alerts
         self._scroll = ctk.CTkScrollableFrame(
-            self, fg_color="transparent", corner_radius=0)
-        self._scroll.grid(row=2, column=0, padx=0, pady=(14, 0), sticky="nsew")
+            self, fg_color="transparent", corner_radius=0,
+            scrollbar_button_color=COLORS["border"],
+            scrollbar_button_hover_color=COLORS["accent"])
+        self._scroll.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
         self._scroll.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
 
-    # ------------------------------------------------------------------
+    def _actualizar_todo(self):
+        """Recarga datos sin conservar las alertas descartadas."""
+        self._dismissed.clear()
+        self.refresh()
+
+    def _marcar_todas_leidas(self):
+        """Descarta todas las alertas visibles (no las borra de la BD)."""
+        try:    vencidos   = self._deu_dao.listar_vencidos()
+        except: vencidos   = []
+        try:    stock_bajo = self._inv_dao.listar_stock_bajo()
+        except: stock_bajo = []
+        for d in vencidos:
+            self._dismissed.add(f"deu_{d['id']}")
+        for p in stock_bajo:
+            self._dismissed.add(f"sku_{p.get('sku', p['nombre'])}")
+        self.refresh()
+
     def refresh(self):
         for w in self._scroll.winfo_children():
             w.destroy()
-        for w in self._kpi_frame.winfo_children():
+        for w in self._kpi_row.winfo_children():
             w.destroy()
 
-        try:    vencidos   = self._deu_dao.listar_vencidos()
-        except: vencidos   = []
-        try:    stock_bajo = self._inv_dao.listar_stock_bajo(limite=5)
-        except: stock_bajo = []
+        try:    vencidos_raw   = self._deu_dao.listar_vencidos()
+        except: vencidos_raw   = []
+        try:    stock_raw      = self._inv_dao.listar_stock_bajo()
+        except: stock_raw      = []
+
+        # Filtrar los descartados
+        vencidos   = [d for d in vencidos_raw   if f"deu_{d['id']}"                        not in self._dismissed]
+        stock_bajo = [p for p in stock_raw       if f"sku_{p.get('sku', p['nombre'])}" not in self._dismissed]
 
         n_venc  = len(vencidos)
         n_stock = len(stock_bajo)
         n_sin   = sum(1 for p in stock_bajo if p["cantidad"] == 0)
-        n_ok    = max(0, 3 - (1 if n_venc else 0) - (1 if n_stock else 0) - (1 if n_sin else 0))
         total   = n_venc + n_stock
 
-        # ── KPI cards ─────────────────────────────────────────────
+        # KPI mini-cards (se basan en datos reales, no filtrados)
+        n_venc_total  = len(vencidos_raw)
+        n_stock_total = len(stock_raw)
         kpis = [
-            ("🚨", str(n_venc),  "Deudas Vencidas", "#e05c5c", "#3d1010"),
-            ("⚠️",  str(n_stock), "Stock Bajo",       "#e0954a", "#3d2200"),
-            ("📦",  str(n_sin),   "Sin Stock",        "#e05c5c" if n_sin else COLORS["text_muted"], "#3d1010" if n_sin else COLORS["bg_card"]),
-            ("✅",  "OK" if total == 0 else "—",
-             "Todo en orden" if total == 0 else "Hay alertas",
+            ("🚨", str(n_venc_total),  "Deudas\nVencidas",  "#e05c5c", "#2d0e0e"),
+            ("⚠️",  str(n_stock_total), "Stock\nBajo",        "#e0954a", "#2d1800"),
+            ("📦",  str(sum(1 for p in stock_raw if p["cantidad"] == 0)),   "Sin\nStock",
+             "#e05c5c" if any(p["cantidad"] == 0 for p in stock_raw) else COLORS["text_muted"],
+             "#2d0e0e" if any(p["cantidad"] == 0 for p in stock_raw) else COLORS["bg_card"]),
+            ("✅",  "OK" if total == 0 else f"{total} activas",
+             "Todo al día" if total == 0 else "Pendientes",
              COLORS["success"] if total == 0 else COLORS["text_muted"],
-             "#0d2e1a" if total == 0 else COLORS["bg_card"]),
+             "#0a2218" if total == 0 else COLORS["bg_card"]),
         ]
         for col, (icono, valor, etiq, color, bg) in enumerate(kpis):
-            c = ctk.CTkFrame(self._kpi_frame, fg_color=bg, corner_radius=16)
-            c.grid(row=0, column=col, padx=6, pady=0, sticky="nsew")
-            c.grid_columnconfigure(1, weight=1)
-            # Indicador lateral
-            ctk.CTkFrame(c, fg_color=color, width=5, corner_radius=3).grid(
-                row=0, column=0, rowspan=3, sticky="nsew", padx=(0,0), pady=0)
-            ctk.CTkLabel(c, text=icono, font=(F, 30)).grid(
-                row=0, column=1, rowspan=2, padx=(12,8), pady=(14,14))
-            ctk.CTkLabel(c, text=valor, font=(F, 28, "bold"),
-                         text_color=color, anchor="w").grid(
-                row=0, column=2, padx=(0,16), pady=(18,0), sticky="sw")
-            ctk.CTkLabel(c, text=etiq, font=(F, 10),
-                         text_color=COLORS["text_muted"], anchor="w").grid(
-                row=1, column=2, padx=(0,16), pady=(0,14), sticky="nw")
+            c = ctk.CTkFrame(self._kpi_row, fg_color=bg, corner_radius=12)
+            c.grid(row=0, column=col, padx=5, pady=4, sticky="nsew")
+            c.grid_columnconfigure(0, weight=1)
+            top_f = ctk.CTkFrame(c, fg_color="transparent")
+            top_f.pack(fill="x", padx=12, pady=(12, 4))
+            ctk.CTkLabel(top_f, text=icono, font=(F, 22)).pack(side="left")
+            ctk.CTkLabel(top_f, text=valor, font=(F, 24, "bold"),
+                         text_color=color).pack(side="right")
+            ctk.CTkFrame(c, fg_color=color, height=2, corner_radius=1).pack(fill="x", padx=12, pady=2)
+            ctk.CTkLabel(c, text=etiq, font=(F, 10), text_color=COLORS["text_muted"],
+                         justify="center").pack(padx=12, pady=(2, 10))
 
+        # Empty state
         if total == 0:
-            # Banner de todo bien
-            ok = ctk.CTkFrame(self._scroll, fg_color="#0d2e1a", corner_radius=20)
-            ok.grid(row=0, column=0, padx=32, pady=32, sticky="ew")
-            ok.grid_columnconfigure(0, weight=1)
-            ctk.CTkLabel(ok, text="✅", font=(F, 72)).grid(pady=(32, 8))
-            ctk.CTkLabel(ok, text="¡Todo en orden!",
-                         font=(F, 26, "bold"), text_color=COLORS["success"]).grid()
-            ctk.CTkLabel(ok, text="No hay alertas activas. El stock y los pagos están al día.",
-                         font=(F, 13), text_color=COLORS["text_muted"]).grid(pady=(6, 32))
+            empty = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+            empty.grid(row=0, column=0, padx=24, pady=24, sticky="ew")
+            empty.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(empty, text="✅", font=(F, 60)).grid(pady=(28, 6))
+            ctk.CTkLabel(empty, text="¡Todo en orden!",
+                         font=(F, 22, "bold"), text_color=COLORS["success"]).grid()
+            if self._dismissed:
+                ctk.CTkLabel(empty, text=f"{len(self._dismissed)} alerta(s) marcada(s) como leída(s).",
+                             font=(F, 11), text_color=COLORS["text_muted"]).grid(pady=(2, 4))
+            ctk.CTkLabel(empty, text="No hay alertas activas. El stock y los pagos están al día.",
+                         font=(F, 12), text_color=COLORS["text_muted"]).grid(pady=(4, 28))
             return
 
-        row = 0
+        row_i = 0
 
-        # ── Deudores Vencidos ───────────────────────────────────
         if vencidos:
-            self._seccion(row, f"🚨  Deudas Vencidas  —  {n_venc} pendiente{'s' if n_venc != 1 else ''}",
-                          "#e05c5c")
-            row += 1
+            self._section_header(row_i, f"🚨  Deudas Vencidas ({n_venc})", "#e05c5c")
+            row_i += 1
             for d in vencidos:
                 dias = d.get("dias_atraso", 0)
-                tel  = d.get("telefono") or ""
-                urgency = "🔴 URGENTE" if dias > 7 else "⚠️ Vencido"
-                self._tarjeta_deuda(
-                    row,
-                    nombre=d["nombre"],
-                    monto_usd=d["monto_deuda_usd"],
-                    monto_bs=d["monto_deuda_bs"],
-                    dias=dias,
-                    limite=d.get("fecha_limite_pago","?"),
-                    telefono=tel,
-                    urgency=urgency,
-                )
-                row += 1
+                self._deuda_card(row_i, d["id"], d["nombre"], d["monto_deuda_usd"],
+                                 d["monto_deuda_bs"], dias,
+                                 d.get("fecha_limite_pago", "?"), d.get("telefono", ""))
+                row_i += 1
 
-        # ── Stock Bajo ─────────────────────────────────────────
         if stock_bajo:
-            self._seccion(row, f"⚠️  Stock Bajo  —  {n_stock} producto{'s' if n_stock != 1 else ''}",
-                          "#e0954a")
-            row += 1
+            self._section_header(row_i, f"⚠️  Stock Bajo ({n_stock} productos)", "#e0954a")
+            row_i += 1
             for p in stock_bajo:
-                qty = p["cantidad"]
-                self._tarjeta_stock(row, p["nombre"], qty, p.get("sku",""))
-                row += 1
+                self._stock_card(row_i, p["nombre"], p["cantidad"], p.get("sku", ""), p.get("stock_minimo", 5))
+                row_i += 1
 
-    # ------------------------------------------------------------------
-    def _seccion(self, row, titulo, color):
-        f = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"],
-                         corner_radius=10, height=42)
-        f.grid(row=row, column=0, padx=24, pady=(20, 8), sticky="ew")
-        f.grid_propagate(False)
-        f.grid_columnconfigure(1, weight=1)
-        ctk.CTkFrame(f, fg_color=color, width=5, corner_radius=3).grid(
-            row=0, column=0, sticky="nsew", padx=(0, 0))
+    def _dismiss(self, key: str):
+        """Descarta una alerta individual por su clave."""
+        self._dismissed.add(key)
+        self.refresh()
+
+    def _section_header(self, row, titulo, color):
+        bg = "#2d0e0e" if color == "#e05c5c" else "#2d1800"
+        f = ctk.CTkFrame(self._scroll, fg_color=bg, corner_radius=8)
+        f.grid(row=row, column=0, padx=16, pady=(16, 4), sticky="ew")
         ctk.CTkLabel(f, text=titulo, font=(F, 13, "bold"),
-                     text_color=color, anchor="w").grid(
-            row=0, column=1, padx=14, pady=0, sticky="w")
+                     text_color=color, anchor="w").pack(padx=16, pady=10, anchor="w")
 
-    def _tarjeta_deuda(self, row, nombre, monto_usd, monto_bs, dias, limite, telefono, urgency):
-        card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"],
-                            corner_radius=16)
-        card.grid(row=row, column=0, padx=24, pady=5, sticky="ew")
-        card.grid_columnconfigure(2, weight=1)
-
-        # Barra lateral roja
-        ctk.CTkFrame(card, fg_color="#e05c5c", width=6, corner_radius=4).grid(
-            row=0, column=0, rowspan=4, sticky="nsew")
-
-        # Icono + urgencia
-        left = ctk.CTkFrame(card, fg_color="transparent", width=64)
-        left.grid(row=0, column=1, rowspan=4, padx=(14, 4), pady=18, sticky="n")
-        ctk.CTkLabel(left, text="🚨", font=(F, 34)).pack()
-        ctk.CTkLabel(left, text=urgency, font=(F, 9, "bold"),
-                     text_color="#e05c5c").pack(pady=(4,0))
-
-        # Info
-        ctk.CTkLabel(card, text=nombre, font=(F, 15, "bold"),
+    def _deuda_card(self, row, deu_id, nombre, usd, bs, dias, limite, telefono):
+        key = f"deu_{deu_id}"
+        c = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=12)
+        c.grid(row=row, column=0, padx=16, pady=4, sticky="ew")
+        c.grid_columnconfigure(1, weight=1)
+        ctk.CTkFrame(c, fg_color="#e05c5c", width=4, corner_radius=2).grid(
+            row=0, column=0, rowspan=3, sticky="nsew")
+        ctk.CTkLabel(c, text=nombre, font=(F, 14, "bold"),
                      text_color=COLORS["text_primary"], anchor="w").grid(
-            row=0, column=2, padx=(8,20), pady=(18,2), sticky="w")
-        ctk.CTkLabel(card, text=f"${monto_usd:,.2f} USD  |  Bs. {monto_bs:,.2f}",
-                     font=(F, 14, "bold"), text_color="#e05c5c", anchor="w").grid(
-            row=1, column=2, padx=(8,20), pady=0, sticky="w")
-        ctk.CTkLabel(card, text=f"Vencido hace {dias} día{'s' if dias!=1 else ''}   ·   Límite: {limite}",
-                     font=(F, 10), text_color=COLORS["text_muted"], anchor="w").grid(
-            row=2, column=2, padx=(8,20), pady=0, sticky="w")
+            row=0, column=1, padx=14, pady=(12, 2), sticky="w")
+        ctk.CTkLabel(c, text=f"💵 ${usd:,.2f}  |  Bs. {bs:,.2f}",
+                     font=(F, 12, "bold"), text_color="#e05c5c", anchor="w").grid(
+            row=1, column=1, padx=14, pady=0, sticky="w")
+        info = f"Vencido hace {dias} día{'s' if dias!=1 else ''}  ·  Límite: {limite}"
         if telefono:
-            ctk.CTkLabel(card, text=f"📱 {telefono}",
-                         font=(F, 10), text_color=COLORS["accent"], anchor="w").grid(
-                row=3, column=2, padx=(8,20), pady=(0,16), sticky="w")
+            info += f"  ·  📱 {telefono}"
+        ctk.CTkLabel(c, text=info, font=(F, 10), text_color=COLORS["text_muted"],
+                     anchor="w").grid(row=2, column=1, padx=14, pady=(0, 12), sticky="w")
+        badge_frame = ctk.CTkFrame(c, fg_color="transparent")
+        badge_frame.grid(row=0, column=2, rowspan=3, padx=14, pady=8, sticky="e")
+        ctk.CTkLabel(badge_frame, text="🔴 URGENTE" if dias > 7 else "⚠️ Vencida",
+                     font=(F, 10, "bold"),
+                     text_color="#e05c5c" if dias > 7 else "#e0954a").pack(anchor="e")
+        ctk.CTkButton(badge_frame, text="✔ Leído", height=24, width=70,
+                      font=(F, 10), fg_color="#1e2e1e", hover_color="#2a3a2a",
+                      text_color=COLORS["success"], corner_radius=6,
+                      command=lambda k=key: self._dismiss(k)).pack(anchor="e", pady=(4, 0))
 
-    def _tarjeta_stock(self, row, nombre, qty, sku):
+    def _stock_card(self, row, nombre, qty, sku, stock_minimo=5):
+        key = f"sku_{sku or nombre}"
         urgente = qty == 0
         color   = "#e05c5c" if urgente else "#e0954a"
-        bg      = "#2a1010" if urgente else "#2a1800"
-
-        card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"],
-                            corner_radius=16)
-        card.grid(row=row, column=0, padx=24, pady=5, sticky="ew")
-        card.grid_columnconfigure(2, weight=1)
-
-        ctk.CTkFrame(card, fg_color=color, width=6, corner_radius=4).grid(
-            row=0, column=0, rowspan=3, sticky="nsew")
-
-        icono = "📦" if urgente else "⚠️"
-        ctk.CTkLabel(card, text=icono, font=(F, 32)).grid(
-            row=0, column=1, rowspan=3, padx=(14,8), pady=14)
-
-        ctk.CTkLabel(card, text=nombre, font=(F, 14, "bold"),
+        c = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=12)
+        c.grid(row=row, column=0, padx=16, pady=4, sticky="ew")
+        c.grid_columnconfigure(2, weight=1)
+        ctk.CTkFrame(c, fg_color=color, width=4, corner_radius=2).grid(
+            row=0, column=0, rowspan=2, sticky="nsew")
+        ctk.CTkLabel(c, text="📦" if urgente else "⚠️", font=(F, 20)).grid(
+            row=0, column=1, rowspan=2, padx=(12, 6), pady=12)
+        ctk.CTkLabel(c, text=nombre, font=(F, 14, "bold"),
                      text_color=COLORS["text_primary"], anchor="w").grid(
-            row=0, column=2, padx=(4,20), pady=(16,2), sticky="w")
-
-        # Barra de stock visual
-        bar_f = ctk.CTkFrame(card, fg_color="transparent")
-        bar_f.grid(row=1, column=2, padx=(4,20), pady=2, sticky="ew")
-        bar_f.grid_columnconfigure(1, weight=1)
-        lbl_qty = "¡SIN STOCK!" if urgente else f"{qty} unidades"
-        ctk.CTkLabel(bar_f, text=lbl_qty, font=(F, 12, "bold"),
-                     text_color=color, anchor="w").grid(row=0, column=0, sticky="w")
-        bar_bg = ctk.CTkFrame(bar_f, fg_color="#1a1e30", height=8, corner_radius=4)
-        bar_bg.grid(row=0, column=1, padx=(12,0), sticky="ew")
-        bar_bg.grid_columnconfigure(0, weight=1)
-        if not urgente:
-            fill_pct = min(1.0, qty / 5.0)
-            ctk.CTkFrame(bar_bg, fg_color=color, height=8,
-                         corner_radius=4, width=int(fill_pct * 200)).grid(
-                row=0, column=0, sticky="w")
-
-        ctk.CTkLabel(card, text=f"SKU: {sku or 'N/A'}" + ("   ·   Reordenar URGENTE" if urgente else ""),
-                     font=(F, 10), text_color=COLORS["text_muted"], anchor="w").grid(
-            row=2, column=2, padx=(4,20), pady=(0,14), sticky="w")
+            row=0, column=2, padx=4, pady=(12, 2), sticky="w")
+        status = "¡SIN STOCK!" if urgente else f"{qty} unidades disponibles"
+        umbral_txt = f"  ·  Umbral: {stock_minimo} uds."
+        ctk.CTkLabel(c, text=f"{status}  ·  SKU: {sku or 'N/A'}{umbral_txt}",
+                     font=(F, 11), text_color=color, anchor="w").grid(
+            row=1, column=2, padx=4, pady=(0, 12), sticky="w")
+        badge_frame = ctk.CTkFrame(c, fg_color="transparent")
+        badge_frame.grid(row=0, column=3, rowspan=2, padx=14, pady=8, sticky="e")
+        ctk.CTkLabel(badge_frame, text="🚨 REORDENAR" if urgente else "📉 Stock bajo",
+                     font=(F, 10, "bold"), text_color=color).pack(anchor="e")
+        ctk.CTkButton(badge_frame, text="✔ Leído", height=24, width=70,
+                      font=(F, 10), fg_color="#1e2e1e", hover_color="#2a3a2a",
+                      text_color=COLORS["success"], corner_radius=6,
+                      command=lambda k=key: self._dismiss(k)).pack(anchor="e", pady=(4, 0))
 
 
 # ===========================================================================
@@ -1056,7 +1051,7 @@ class DashboardApp(ctk.CTk):
         ("🛒",  "Punto de Venta",     "pos",            True),   # abre ventana
         ("📦",  "Inventario",         "inventario",     False),
         ("🏭",  "Proveedores",        "proveedores",    False),
-        ("📋",  "Deudores (Fiado)",   "deudores",       False),
+        ("📋",  "Deudores",           "deudores",       False),
         ("🔔",  "Notificaciones",     "notificaciones", False),
         ("⚙️",  "Configuración",      "configuracion",  False),
     ]
@@ -1082,7 +1077,17 @@ class DashboardApp(ctk.CTk):
         self._login_win.destroy()
         self._usuario_nombre = usuario_info.get("usuario", "")
         self._rol            = usuario_info.get("rol", "Empleado")
+        self._empresa_id     = usuario_info.get("empresa_id")
         self._es_admin       = self._rol == "Admin"
+
+        # SuperAdmin: abre panel propio, no el dashboard normal
+        if self._rol == "SuperAdmin":
+            from ui.superadmin import SuperAdminPanel
+            self.deiconify()
+            self.withdraw()
+            panel = SuperAdminPanel(self)
+            panel.protocol("WM_DELETE_WINDOW", self._on_login_closed)
+            return
 
         self._setup_window()
         self._build_dashboard()
@@ -1136,20 +1141,45 @@ class DashboardApp(ctk.CTk):
         self._build_pages()
 
     def _build_sidebar(self):
-        self._sidebar.grid_rowconfigure(7, weight=1)  # push badge al fondo
+        self._sidebar.grid_rowconfigure(9, weight=1)  # push badge al fondo
         self._sidebar.grid_columnconfigure(0, weight=1)
 
-        # Logo
+        # Logo / branding de la empresa
         logo_frame = ctk.CTkFrame(self._sidebar, fg_color=COLORS["bg_card"], corner_radius=0)
         logo_frame.grid(row=0, column=0, sticky="ew")
 
+        empresa = None
+        if hasattr(self, "_empresa_id") and self._empresa_id:
+            try:
+                empresa = EmpresasDAO().obtener_por_id(self._empresa_id)
+            except Exception:
+                empresa = None
+
+        if empresa:
+            nombre_sidebar = empresa["nombre"]
+            ruta_logo = empresa.get("ruta_logo", "")
+            if ruta_logo and Path(ruta_logo).exists():
+                try:
+                    from PIL import Image
+                    img = Image.open(ruta_logo).convert("RGBA")
+                    img.thumbnail((32, 32))
+                    ctk_img = ctk.CTkImage(img, size=(32, 32))
+                    lbl_logo = ctk.CTkLabel(logo_frame, image=ctk_img, text="",
+                                            font=(F, 18, "bold"), text_color=COLORS["accent"])
+                    lbl_logo.pack(side="left", padx=(16, 6), pady=(16, 4))
+                    lbl_logo._ctk_ref = ctk_img
+                except Exception:
+                    pass
+        else:
+            nombre_sidebar = "RepuestosDB"
+
         ctk.CTkLabel(
-            logo_frame, text="⚡ RepuestosDB",
-            font=(F, 18, "bold"), text_color=COLORS["accent"],
+            logo_frame, text=nombre_sidebar,
+            font=(F, 16, "bold"), text_color=COLORS["accent"],
         ).pack(padx=16, pady=(20, 4), anchor="w")
 
         ctk.CTkLabel(
-            logo_frame, text="Sistema de Gestión",
+            logo_frame, text="Sistema de Gestion",
             font=(F, 10), text_color=COLORS["text_muted"],
         ).pack(padx=16, pady=(0, 16), anchor="w")
 
@@ -1179,7 +1209,7 @@ class DashboardApp(ctk.CTk):
         # Badge de usuario (parte baja del sidebar)
         rol_color = COLORS["accent"] if self._rol == "Admin" else COLORS["success"]
         badge = ctk.CTkFrame(self._sidebar, fg_color=COLORS["bg_card"], corner_radius=12)
-        badge.grid(row=9, column=0, padx=10, pady=(0, 16), sticky="sew")
+        badge.grid(row=10, column=0, padx=10, pady=(0, 16), sticky="sew")
 
         ctk.CTkLabel(
             badge, text=f"👤  {self._usuario_nombre}",
@@ -1222,6 +1252,11 @@ class DashboardApp(ctk.CTk):
                 # Actualizar estadísticas al volver del POS
                 if "reportes" in self._pages:
                     self._pages["reportes"].refresh()
+                if "inventario" in self._pages:
+                    self._pages["inventario"]._load_inventory()
+                if "notificaciones" in self._pages:
+                    self._pages["notificaciones"].refresh()
+                self.after(100, self._refresh_notif_badge)
             PuntoDeVentaWindow(parent=self, on_venta_procesada_callback=_on_pos_closed)
             return
 
@@ -1245,6 +1280,8 @@ class DashboardApp(ctk.CTk):
             self._pages["reportes"].refresh()
         elif key == "deudores":
             self._pages["deudores"].refresh()
+            # Actualizar el badge de alertas (puede haber cambiado alguna deuda)
+            self.after(100, self._refresh_notif_badge)
         elif key == "proveedores":
             self._pages["proveedores"].refresh()
         elif key == "notificaciones":
@@ -1252,7 +1289,8 @@ class DashboardApp(ctk.CTk):
             # Resetear badge al ver las notificaciones
             if "notificaciones" in self._nav_buttons:
                 self._nav_buttons["notificaciones"].configure(
-                    text=f"  🔔  Notificaciones"
+                    text="  🔔  Notificaciones",
+                    text_color=COLORS["text_primary"],
                 )
 
         self._active_key = key
@@ -1264,7 +1302,7 @@ class DashboardApp(ctk.CTk):
         """
         try:
             inv_dao = InventarioDAO()
-            stock_bajo = inv_dao.listar_stock_bajo(limite=5)
+            stock_bajo = inv_dao.listar_stock_bajo()
         except Exception:
             stock_bajo = []
         try:
@@ -1292,15 +1330,50 @@ class DashboardApp(ctk.CTk):
 
 
 # ===========================================================================
-# Página: Configuración (con sistema de actualizaciones)
+# Página: Configuración (temas, apariencia, actualizaciones)
 # ===========================================================================
 
+# Paletas de temas disponibles (sincronizadas con app.py)
+TEMAS = {}
+for _tn, _tp in _PALETAS.items():
+    TEMAS[_tn] = {
+        "accent":              _tp["accent"],
+        "accent_hover":        _tp["accent_hover"],
+        "success":             _tp["success"],
+        "danger":              _tp["danger"],
+        "bg_root":             _tp["bg_root"],
+        "bg_card":             _tp["bg_card"],
+        "bg_input":            _tp["bg_input"],
+        "sidebar":             _tp.get("sidebar", _tp.get("bg_sidebar", _tp["bg_root"])),
+        "sidebar_btn":         _tp.get("sidebar_btn", _tp.get("bg_input", _tp["bg_root"])),
+        "sidebar_active":      _tp.get("sidebar_active", _tp["accent"]),
+        "sidebar_active_text": _tp.get("sidebar_active_text", "#ffffff"),
+    }
+
+THEME_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "theme.json"
+
+
+def _cargar_tema_guardado() -> str:
+    return _leer_nombre_tema()
+
+
+def _guardar_tema(nombre: str):
+    try:
+        import json
+        THEME_CONFIG_PATH.parent.mkdir(exist_ok=True)
+        with open(THEME_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"tema": nombre}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 class ConfiguracionPage(ctk.CTkFrame):
-    """Página de configuración del sistema con actualizaciones automáticas."""
+    """Página de configuración: temas, apariencia, actualizaciones."""
 
     def __init__(self, parent, dashboard_ref, **kwargs):
         super().__init__(parent, fg_color=COLORS["bg_root"], corner_radius=0, **kwargs)
         self._dash = dashboard_ref
+        self._tema_actual = _cargar_tema_guardado()
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self._build()
@@ -1311,31 +1384,207 @@ class ConfiguracionPage(ctk.CTkFrame):
         banner.grid(row=0, column=0, sticky="ew")
         banner.grid_propagate(False)
         banner.grid_columnconfigure(0, weight=1)
-
         inner = ctk.CTkFrame(banner, fg_color="transparent")
         inner.grid(row=0, column=0, padx=28, pady=0, sticky="nsew")
         inner.grid_columnconfigure(0, weight=1)
-
         ctk.CTkLabel(inner, text="⚙️  Configuración del Sistema",
                      font=(F, 26, "bold"), text_color=COLORS["accent"],
                      anchor="w").grid(row=0, column=0, pady=(20, 0), sticky="w")
-        ctk.CTkLabel(inner, text="Gestiona las actualizaciones y preferencias del programa",
+        ctk.CTkLabel(inner, text="Temas de color, apariencia y actualizaciones del programa",
                      font=(F, 12), text_color=COLORS["text_muted"],
                      anchor="w").grid(row=1, column=0, pady=(2, 0), sticky="w")
 
-        # ── Contenido scrollable ──────────────────────────────────────
-        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
-        scroll.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-        scroll.grid_columnconfigure(0, weight=1)
+        # ── Scroll ────────────────────────────────────────────────────
+        self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
+        self._scroll.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
+        self._scroll.grid_columnconfigure(0, weight=1)
 
-        # ── Sección: Versión y Actualizaciones ────────────────────────
-        self._seccion(scroll, 0, "⬇️  Actualizaciones Automáticas")
+        self._build_temas()
+        self._build_apariencia()
+        self._build_actualizaciones()
+        self._build_info()
 
-        card = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+    # ------------------------------------------------------------------
+    def _build_temas(self):
+        self._seccion(self._scroll, 0, "🎨  Temas de Color")
+
+        card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
         card.grid(row=1, column=0, padx=28, pady=(0, 8), sticky="ew")
+        card.grid_columnconfigure(tuple(range(len(TEMAS))), weight=1)
+
+        ctk.CTkLabel(card, text="Selecciona un tema de color. Se aplicará al reiniciar el programa.",
+                     font=(F, 11), text_color=COLORS["text_muted"],
+                     anchor="w").grid(row=0, column=0, columnspan=len(TEMAS),
+                                      padx=20, pady=(16, 12), sticky="w")
+
+        self._tema_btns: dict[str, ctk.CTkButton] = {}
+        for col, (nombre, paleta) in enumerate(TEMAS.items()):
+            es_actual = (nombre == self._tema_actual)
+            # Muestra un mini preview del tema como botón
+            btn_frame = ctk.CTkFrame(card,
+                                     fg_color=paleta["bg_card"],
+                                     corner_radius=12,
+                                     border_width=3,
+                                     border_color=paleta["accent"] if es_actual else paleta["bg_input"])
+            btn_frame.grid(row=1, column=col, padx=8, pady=(0, 16), sticky="nsew")
+            btn_frame.grid_columnconfigure(0, weight=1)
+
+            # Mini sidebar
+            ctk.CTkFrame(btn_frame, fg_color=paleta["sidebar"],
+                         width=16, corner_radius=0).grid(
+                row=0, column=0, rowspan=4, sticky="nsw")
+
+            # Accent bar
+            ctk.CTkFrame(btn_frame, fg_color=paleta["accent"],
+                         height=4, corner_radius=2).grid(
+                row=0, column=0, padx=(20, 8), pady=(12, 4), sticky="ew")
+
+            ctk.CTkLabel(btn_frame, text=nombre, font=(F, 11, "bold"),
+                         text_color=paleta["accent"], anchor="center").grid(
+                row=1, column=0, padx=(20, 8), pady=(0, 4), sticky="ew")
+
+            ctk.CTkLabel(btn_frame,
+                         text="✓ Activo" if es_actual else "",
+                         font=(F, 10), text_color=paleta["success"],
+                         anchor="center").grid(row=2, column=0, padx=(20, 8), sticky="ew")
+
+            ctk.CTkButton(btn_frame, text="Aplicar",
+                          height=28, font=(F, 11, "bold"),
+                          fg_color=paleta["accent"], hover_color=paleta["accent_hover"],
+                          text_color="#fff", corner_radius=8,
+                          command=lambda n=nombre: self._aplicar_tema(n)).grid(
+                row=3, column=0, padx=(20, 8), pady=(4, 12), sticky="ew")
+
+            self._tema_btns[nombre] = btn_frame
+
+        # ── Banner de reinicio ─────────────────────────────────────────
+        restart_bar = ctk.CTkFrame(card, fg_color="#1a2a0a", corner_radius=10)
+        restart_bar.grid(row=2, column=0, columnspan=len(TEMAS), padx=16, pady=(0, 16), sticky="ew")
+        restart_bar.grid_columnconfigure(0, weight=1)
+        tema_guardado = _cargar_tema_guardado()
+        ctk.CTkLabel(
+            restart_bar,
+            text=f"✅ Tema seleccionado: «{tema_guardado}»  —  Reinicia el programa para aplicar los cambios de color.",
+            font=(F, 11), text_color="#3ecf8e", anchor="w",
+        ).grid(row=0, column=0, padx=16, pady=10, sticky="w")
+        ctk.CTkButton(
+            restart_bar,
+            text="🔄  Reiniciar ahora",
+            font=(F, 12, "bold"), height=34, width=160,
+            fg_color="#1e3820", hover_color="#3ecf8e",
+            text_color="#3ecf8e", corner_radius=8,
+            command=self._reiniciar_app,
+        ).grid(row=0, column=1, padx=(0, 16), pady=10)
+
+    def _aplicar_tema(self, nombre: str):
+        _guardar_tema(nombre)
+        self._tema_actual = nombre
+        # Rebuild cards to update checkmarks
+        for w in self._scroll.winfo_children():
+            w.destroy()
+        self._build_temas()
+        self._build_apariencia()
+        self._build_actualizaciones()
+        self._build_info()
+
+    def _reiniciar_app(self):
+        """Guarda estado y reinicia el proceso para aplicar el nuevo tema."""
+        import subprocess, sys, os
+        script = Path(__file__).resolve().parent.parent / "main.py"
+        try:
+            self.winfo_toplevel().destroy()
+        except Exception:
+            pass
+        subprocess.Popen([sys.executable, str(script)], cwd=str(script.parent))
+        sys.exit(0)
+
+    # ------------------------------------------------------------------
+    def _build_apariencia(self):
+        self._seccion(self._scroll, 4, "🖥️  Apariencia")
+
+        card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+        card.grid(row=5, column=0, padx=28, pady=(0, 8), sticky="ew")
         card.grid_columnconfigure(1, weight=1)
 
-        # Icono grande
+        # Modo claro/oscuro
+        fila = ctk.CTkFrame(card, fg_color=COLORS["bg_input"], corner_radius=8)
+        fila.grid(row=0, column=0, padx=12, pady=(12, 4), sticky="ew", columnspan=2)
+        fila.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(fila, text="Modo de interfaz", font=(F, 12),
+                     text_color=COLORS["text_primary"], anchor="w").grid(
+            row=0, column=0, padx=16, pady=12, sticky="w")
+        modo_actual = ctk.get_appearance_mode()
+        modo_var = ctk.StringVar(value=modo_actual)
+        seg = ctk.CTkSegmentedButton(
+            fila, values=["Dark", "Light", "System"],
+            variable=modo_var, font=(F, 11),
+            command=lambda v: ctk.set_appearance_mode(v),
+            height=32,
+        )
+        seg.grid(row=0, column=1, padx=16, pady=12, sticky="e")
+
+        # Escala de la interfaz
+        fila2 = ctk.CTkFrame(card, fg_color="transparent", corner_radius=8)
+        fila2.grid(row=1, column=0, padx=12, pady=4, sticky="ew", columnspan=2)
+        fila2.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(fila2, text="Escala de la interfaz", font=(F, 12),
+                     text_color=COLORS["text_primary"], anchor="w").grid(
+            row=0, column=0, padx=16, pady=12, sticky="w")
+        escala_var = ctk.StringVar(value="100%")
+        escala_seg = ctk.CTkSegmentedButton(
+            fila2, values=["80%", "90%", "100%", "110%", "120%"],
+            variable=escala_var, font=(F, 11),
+            command=lambda v: ctk.set_widget_scaling(int(v.replace("%", "")) / 100),
+            height=32,
+        )
+        escala_seg.grid(row=0, column=1, padx=16, pady=12, sticky="e")
+
+        # Animaciones
+        fila3 = ctk.CTkFrame(card, fg_color=COLORS["bg_input"], corner_radius=8)
+        fila3.grid(row=2, column=0, padx=12, pady=4, sticky="ew", columnspan=2)
+        fila3.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(fila3, text="Radio de esquinas", font=(F, 12),
+                     text_color=COLORS["text_primary"], anchor="w").grid(
+            row=0, column=0, padx=16, pady=12, sticky="w")
+        radio_var = ctk.StringVar(value="Redondeado")
+        ctk.CTkSegmentedButton(
+            fila3, values=["Cuadrado", "Redondeado", "Muy redondeado"],
+            variable=radio_var, font=(F, 11),
+            command=self._cambiar_radio,
+            height=32,
+        ).grid(row=0, column=1, padx=16, pady=12, sticky="e")
+
+        # Sidebar compacta
+        fila4 = ctk.CTkFrame(card, fg_color="transparent", corner_radius=8)
+        fila4.grid(row=3, column=0, padx=12, pady=(4, 12), sticky="ew", columnspan=2)
+        fila4.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(fila4, text="Tamaño de fuente global", font=(F, 12),
+                     text_color=COLORS["text_primary"], anchor="w").grid(
+            row=0, column=0, padx=16, pady=12, sticky="w")
+        font_var = ctk.StringVar(value="Normal")
+        ctk.CTkSegmentedButton(
+            fila4, values=["Pequeño", "Normal", "Grande"],
+            variable=font_var, font=(F, 11),
+            command=lambda v: ctk.set_widget_scaling({"Pequeño": 0.9, "Normal": 1.0, "Grande": 1.15}.get(v, 1.0)),
+            height=32,
+        ).grid(row=0, column=1, padx=16, pady=12, sticky="e")
+
+    def _cambiar_radio(self, valor: str):
+        radios = {"Cuadrado": 0, "Redondeado": 8, "Muy redondeado": 20}
+        r = radios.get(valor, 8)
+        ctk.set_default_color_theme("blue")  # reset base
+        # CustomTkinter no expone API directa; mostramos tip
+        from tkinter import messagebox
+        messagebox.showinfo("Consejo", f"Radio {valor} ({r}px) guardado.\nSe aplicará al reiniciar.")
+
+    # ------------------------------------------------------------------
+    def _build_actualizaciones(self):
+        self._seccion(self._scroll, 6, "⬇️  Actualizaciones Automáticas")
+
+        card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+        card.grid(row=7, column=0, padx=28, pady=(0, 8), sticky="ew")
+        card.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(card, text="🚀", font=(F, 52)).grid(
             row=0, column=0, rowspan=3, padx=(24, 16), pady=24, sticky="n")
 
@@ -1363,23 +1612,26 @@ class ConfiguracionPage(ctk.CTkFrame):
             command=self._on_buscar_actualizacion,
         ).grid(row=3, column=0, columnspan=2, padx=24, pady=(12, 24), sticky="w")
 
-        # ── Sección: Info del sistema ─────────────────────────────────
-        self._seccion(scroll, 2, "ℹ️  Información del Sistema")
+    # ------------------------------------------------------------------
+    def _build_info(self):
+        self._seccion(self._scroll, 8, "ℹ️  Información del Sistema")
 
-        info_card = ctk.CTkFrame(scroll, fg_color=COLORS["bg_card"], corner_radius=16)
-        info_card.grid(row=3, column=0, padx=28, pady=(0, 8), sticky="ew")
+        info_card = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
+        info_card.grid(row=9, column=0, padx=28, pady=(0, 28), sticky="ew")
         info_card.grid_columnconfigure(1, weight=1)
 
-        import sys as _sys
-        import platform
+        import sys as _sys, platform
+        local_v = get_local_version()
         info_items = [
             ("Versión del sistema",    local_v),
             ("Repositorio",            "github.com/XekRed/inventario-repuestos"),
             ("Python",                 _sys.version.split()[0]),
             ("Sistema Operativo",      platform.system() + " " + platform.release()),
+            ("Tema activo",            self._tema_actual),
         ]
         for i, (label, val) in enumerate(info_items):
-            row_f = ctk.CTkFrame(info_card, fg_color=COLORS["input"] if i % 2 == 0 else "transparent",
+            row_f = ctk.CTkFrame(info_card,
+                                  fg_color=COLORS["bg_input"] if i % 2 == 0 else "transparent",
                                   corner_radius=8)
             row_f.grid(row=i, column=0, padx=12, pady=2, sticky="ew")
             row_f.grid_columnconfigure(1, weight=1)

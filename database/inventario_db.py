@@ -5,11 +5,12 @@ Módulo principal de base de datos para el sistema de gestión de
 repuestos de electrodomésticos.
 
 Tablas:
-  - inventario : Repuestos y piezas.
-  - usuarios   : Cuentas de acceso con roles (Admin / Empleado).
+  - inventario  : Repuestos y piezas.
+  - usuarios    : Cuentas de acceso con roles (SuperAdmin / Admin / Empleado).
+  - empresas    : Empresas registradas en el sistema (Marca Blanca).
+  - clientes    : Directorio de clientes para autocompletado en POS.
 
 Arquitectura: Offline First — SQLite local.
-Autor: Arquitecto de Software Senior
 """
 
 import sqlite3
@@ -88,12 +89,26 @@ def inicializar_db() -> None:
         actualizado_en  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
     );
 
+    CREATE TABLE IF NOT EXISTS empresas (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre          TEXT    NOT NULL UNIQUE,
+        ruta_logo       TEXT    NOT NULL DEFAULT '',
+        licencia_activa INTEGER NOT NULL DEFAULT 1
+    );
+
     CREATE TABLE IF NOT EXISTS usuarios (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario     TEXT    NOT NULL UNIQUE,
         contrasena  TEXT    NOT NULL,
-        rol         TEXT    NOT NULL CHECK(rol IN ('Admin', 'Empleado')),
+        rol         TEXT    NOT NULL DEFAULT 'Empleado',
+        empresa_id  INTEGER REFERENCES empresas(id) ON DELETE SET NULL,
         creado_en   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS clientes (
+        cedula   TEXT    PRIMARY KEY,
+        nombre   TEXT    NOT NULL DEFAULT '',
+        telefono TEXT    NOT NULL DEFAULT ''
     );
 
     -- Índices para búsquedas rápidas
@@ -148,9 +163,11 @@ def inicializar_db() -> None:
     );
 
     CREATE TABLE IF NOT EXISTS proveedores (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre     TEXT    NOT NULL UNIQUE,
-        ruta_logo  TEXT    NOT NULL DEFAULT ''
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre        TEXT    NOT NULL UNIQUE,
+        telefono      TEXT    NOT NULL DEFAULT '',
+        representante TEXT    NOT NULL DEFAULT '',
+        ruta_logo     TEXT    NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS pedidos (
@@ -173,18 +190,31 @@ def inicializar_db() -> None:
     try:
         with get_connection() as conn:
             conn.executescript(ddl)
-            # Migraciones para bases de datos existentes
-            try:
-                conn.execute("ALTER TABLE ventas ADD COLUMN metodo_pago TEXT NOT NULL DEFAULT 'Punto'")
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass  # columna ya existe
+            # Migraciones silenciosas para bases de datos existentes
+            _migraciones_seguras(conn)
         logger.info("Base de datos inicializada correctamente en: %s", DB_PATH)
-        # Crear admin por defecto si no existe ningún usuario
+        # Crear superadmin por defecto si no existe ningún usuario
         UsuariosDAO().insertar_admin_defecto()
     except sqlite3.Error as e:
         logger.error("Error al inicializar la base de datos: %s", e)
         raise
+
+
+def _migraciones_seguras(conn: sqlite3.Connection) -> None:
+    """Aplica migraciones ALTER TABLE sin fallar si la columna ya existe."""
+    alteraciones = [
+        "ALTER TABLE ventas ADD COLUMN metodo_pago TEXT NOT NULL DEFAULT 'Punto'",
+        "ALTER TABLE proveedores ADD COLUMN telefono TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE proveedores ADD COLUMN representante TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE usuarios ADD COLUMN empresa_id INTEGER REFERENCES empresas(id)",
+        "ALTER TABLE inventario ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 5",
+    ]
+    for sql in alteraciones:
+        try:
+            conn.execute(sql)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # columna ya existe
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +262,7 @@ class InventarioDAO:
         ubicacion: Optional[str] = None,
         descripcion: Optional[str] = None,
         imagen_ruta: Optional[str] = None,
+        stock_minimo: int = 5,
     ) -> int:
         """
         Inserta un nuevo repuesto en el inventario.
@@ -246,16 +277,16 @@ class InventarioDAO:
         sql = """
         INSERT INTO inventario
             (nombre, modelo, marca, precio_entrada, precio_venta,
-             cantidad, sku, ubicacion, descripcion, imagen_ruta)
+             cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo)
         VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             with get_connection() as conn:
                 cursor = conn.execute(
                     sql,
                     (nombre, modelo, marca, precio_entrada, precio_venta,
-                     cantidad, sku, ubicacion, descripcion, imagen_ruta),
+                     cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo),
                 )
                 new_id = cursor.lastrowid
                 logger.info("Repuesto creado — ID: %s, SKU: %s", new_id, sku)
@@ -314,25 +345,34 @@ class InventarioDAO:
             logger.error("Error al listar inventario: %s", e)
             raise
 
-    def listar_stock_bajo(self, limite: int = 5) -> list[dict]:
+    def listar_stock_bajo(self, limite: int = None) -> list[dict]:
         """
-        Devuelve productos cuya cantidad disponible es menor al límite dado.
-
-        Args:
-            limite: Umbral de stock (por defecto 5 unidades).
+        Devuelve productos cuya cantidad disponible es menor al umbral del producto.
+        Si se pasa `limite`, lo usa como umbral global (para compatibilidad);
+        de lo contrario usa la columna `stock_minimo` de cada producto.
 
         Returns:
             Lista de dicts ordenada por cantidad ascendente.
         """
-        sql = """
-            SELECT id, nombre, sku, cantidad
-            FROM   inventario
-            WHERE  cantidad < ?
-            ORDER  BY cantidad ASC
-        """
+        if limite is not None:
+            sql = """
+                SELECT id, nombre, sku, cantidad, stock_minimo
+                FROM   inventario
+                WHERE  cantidad < ?
+                ORDER  BY cantidad ASC
+            """
+            params = (limite,)
+        else:
+            sql = """
+                SELECT id, nombre, sku, cantidad, stock_minimo
+                FROM   inventario
+                WHERE  cantidad < stock_minimo
+                ORDER  BY cantidad ASC
+            """
+            params = ()
         try:
             with get_connection() as conn:
-                return [dict(r) for r in conn.execute(sql, (limite,)).fetchall()]
+                return [dict(r) for r in conn.execute(sql, params).fetchall()]
         except sqlite3.Error as e:
             logger.error("Error al listar stock bajo: %s", e)
             raise
@@ -408,6 +448,7 @@ class InventarioDAO:
         columnas_validas = {
             "nombre", "modelo", "marca", "precio_entrada", "precio_venta",
             "cantidad", "sku", "ubicacion", "descripcion", "imagen_ruta",
+            "stock_minimo",
         }
         if not campos:
             raise ValueError("Debe proporcionar al menos un campo para actualizar.")
@@ -506,14 +547,16 @@ class UsuariosDAO:
         usuario: str,
         contrasena: str,
         rol: str = "Empleado",
+        empresa_id: int = None,
     ) -> int:
         """
         Inserta un nuevo usuario.
 
         Args:
-            usuario:   Nombre de usuario único.
+            usuario:    Nombre de usuario único.
             contrasena: Contraseña en texto plano (se hashea antes de guardar).
-            rol:       'Admin' o 'Empleado' (por defecto 'Empleado').
+            rol:        'SuperAdmin', 'Admin' o 'Empleado'.
+            empresa_id: ID de la empresa asignada (None para SuperAdmin).
 
         Returns:
             int: ID del usuario creado.
@@ -521,16 +564,16 @@ class UsuariosDAO:
         Raises:
             ValueError: Si el usuario ya existe o el rol es inválido.
         """
-        if rol not in ("Admin", "Empleado"):
-            raise ValueError(f"Rol inválido: '{rol}'. Use 'Admin' o 'Empleado'.")
+        if rol not in ("Admin", "Empleado", "SuperAdmin"):
+            raise ValueError(f"Rol inválido: '{rol}'. Use 'Admin', 'Empleado' o 'SuperAdmin'.")
 
         sql = """
-        INSERT INTO usuarios (usuario, contrasena, rol)
-        VALUES (?, ?, ?)
+        INSERT INTO usuarios (usuario, contrasena, rol, empresa_id)
+        VALUES (?, ?, ?, ?)
         """
         try:
             with get_connection() as conn:
-                cursor = conn.execute(sql, (usuario, _hash_password(contrasena), rol))
+                cursor = conn.execute(sql, (usuario, _hash_password(contrasena), rol, empresa_id))
                 new_id = cursor.lastrowid
                 logger.info("Usuario creado — ID: %s, usuario: %s, rol: %s", new_id, usuario, rol)
                 return new_id
@@ -554,10 +597,10 @@ class UsuariosDAO:
         Verifica usuario y contraseña.
 
         Returns:
-            dict con {id, usuario, rol} si las credenciales son correctas.
+            dict con {id, usuario, rol, empresa_id} si las credenciales son correctas.
             None si el usuario no existe o la contraseña es incorrecta.
         """
-        sql = "SELECT id, usuario, rol FROM usuarios WHERE usuario = ? AND contrasena = ?"
+        sql = "SELECT id, usuario, rol, empresa_id FROM usuarios WHERE usuario = ? AND contrasena = ?"
         try:
             with get_connection() as conn:
                 row = conn.execute(sql, (usuario, _hash_password(contrasena))).fetchone()
@@ -576,23 +619,39 @@ class UsuariosDAO:
 
     def insertar_admin_defecto(self) -> bool:
         """
-        Inserta el usuario Admin por defecto SOLO si la tabla está vacía.
-        Credenciales: usuario='admin' / contraseña='admin123'
-
-        Returns:
-            True si se creó el admin, False si ya existían usuarios.
+        Garantiza que el SuperAdmin 'XekRed' SIEMPRE existe en la BD.
+        Si la tabla está vacía también crea un 'admin' básico.
+        Credenciales SuperAdmin: usuario='XekRed' / contraseña='Db123456'
         """
-        sql_count = "SELECT COUNT(*) AS total FROM usuarios"
         try:
             with get_connection() as conn:
-                total = conn.execute(sql_count).fetchone()["total"]
+                total = conn.execute("SELECT COUNT(*) AS n FROM usuarios").fetchone()["n"]
+
+                # Si la tabla está vacía crear ambos usuarios iniciales
                 if total == 0:
-                    self.crear_usuario("admin", "admin123", "Admin")
-                    logger.info(
-                        "Usuario Admin por defecto creado. "
-                        "Credenciales: admin / admin123"
-                    )
+                    self.crear_usuario("XekRed", "Db123456", "SuperAdmin")
+                    self.crear_usuario("admin",  "admin123",  "Admin")
+                    logger.info("SuperAdmin y Admin por defecto creados.")
                     return True
+
+                # Migrar: asegurarse de que XekRed SuperAdmin siempre exista
+                existe = conn.execute(
+                    "SELECT id FROM usuarios WHERE usuario = 'XekRed' LIMIT 1"
+                ).fetchone()
+                if not existe:
+                    try:
+                        self.crear_usuario("XekRed", "Db123456", "SuperAdmin")
+                        logger.info("SuperAdmin 'XekRed' creado en migración.")
+                    except ValueError:
+                        pass  # ya existía con otro hash
+                else:
+                    # Actualizar la contraseña a la versión sin punto por si acaso
+                    conn.execute(
+                        "UPDATE usuarios SET contrasena=? WHERE usuario='XekRed'",
+                        (_hash_password("Db123456"),)
+                    )
+                    conn.commit()
+
                 return False
         except sqlite3.Error as e:
             logger.error("Error al verificar/insertar admin defecto: %s", e)
@@ -604,7 +663,13 @@ class UsuariosDAO:
 
     def listar_usuarios(self) -> list[dict]:
         """Devuelve todos los usuarios (sin incluir la contraseña)."""
-        sql = "SELECT id, usuario, rol, creado_en FROM usuarios ORDER BY usuario"
+        sql = """
+        SELECT u.id, u.usuario, u.rol, u.creado_en, u.empresa_id,
+               e.nombre AS empresa_nombre
+        FROM usuarios u
+        LEFT JOIN empresas e ON e.id = u.empresa_id
+        ORDER BY u.usuario
+        """
         try:
             with get_connection() as conn:
                 rows = conn.execute(sql).fetchall()
@@ -613,7 +678,133 @@ class UsuariosDAO:
             logger.error("Error al listar usuarios: %s", e)
             raise
 
+    def cambiar_contrasena(self, usuario_id: int, nueva_contrasena: str) -> None:
+        """Cambia la contraseña de un usuario por su ID."""
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE usuarios SET contrasena = ? WHERE id = ?",
+                (_hash_password(nueva_contrasena), usuario_id)
+            )
+            conn.commit()
 
+
+# ---------------------------------------------------------------------------
+# DAO de Empresas
+# ---------------------------------------------------------------------------
+
+class EmpresasDAO:
+    """Gestiona la tabla `empresas` para el sistema multi-marca."""
+
+    def crear(self, nombre: str, ruta_logo: str = "") -> int:
+        with get_connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO empresas (nombre, ruta_logo) VALUES (?, ?)",
+                (nombre.strip(), ruta_logo)
+            )
+            conn.commit()
+            return cur.lastrowid
+
+    def listar(self) -> list[dict]:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, nombre, ruta_logo, licencia_activa FROM empresas ORDER BY nombre"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def obtener_primera(self) -> Optional[dict]:
+        """Devuelve la primera empresa registrada, o None si no hay ninguna."""
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT id, nombre, ruta_logo, licencia_activa FROM empresas LIMIT 1"
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception:
+            return None
+
+    def obtener_por_id(self, empresa_id: int) -> Optional[dict]:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, nombre, ruta_logo, licencia_activa FROM empresas WHERE id = ?",
+                (empresa_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def actualizar(self, empresa_id: int, nombre: str, ruta_logo: str = "") -> None:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE empresas SET nombre = ?, ruta_logo = ? WHERE id = ?",
+                (nombre.strip(), ruta_logo, empresa_id)
+            )
+            conn.commit()
+
+    def eliminar(self, empresa_id: int) -> None:
+        with get_connection() as conn:
+            conn.execute("DELETE FROM empresas WHERE id = ?", (empresa_id,))
+            conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# DAO de Clientes
+# ---------------------------------------------------------------------------
+
+class ClientesDAO:
+    """Gestiona la tabla `clientes` para autocompletado en el POS."""
+
+    def buscar(self, termino: str, limite: int = 10) -> list[dict]:
+        """
+        Busca clientes por cédula o nombre (parcial, case-insensitive).
+        Devuelve hasta `limite` resultados.
+        """
+        if not termino or not termino.strip():
+            return []
+        t = f"%{termino.strip().lower()}%"
+        try:
+            with get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT cedula, nombre, telefono FROM clientes"
+                    " WHERE LOWER(cedula) LIKE ? OR LOWER(nombre) LIKE ?"
+                    " ORDER BY nombre LIMIT ?",
+                    (t, t, limite)
+                ).fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def upsert(self, cedula: str, nombre: str, telefono: str = "") -> None:
+        """
+        Inserta o actualiza un cliente.
+        Si la cédula ya existe, actualiza nombre y teléfono si se proveen.
+        Si no existe, lo inserta.
+        """
+        if not cedula or cedula.strip() in ("", "N/A", "S/C"):
+            return
+        cedula = cedula.strip()
+        nombre = nombre.strip()
+        try:
+            with get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO clientes (cedula, nombre, telefono) VALUES (?, ?, ?)"
+                    " ON CONFLICT(cedula) DO UPDATE SET"
+                    " nombre = CASE WHEN excluded.nombre != '' THEN excluded.nombre ELSE nombre END,"
+                    " telefono = CASE WHEN excluded.telefono != '' THEN excluded.telefono ELSE telefono END",
+                    (cedula, nombre, telefono)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning("ClientesDAO.upsert error: %s", e)
+
+    def listar(self) -> list[dict]:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT cedula, nombre, telefono FROM clientes ORDER BY nombre"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def eliminar(self, cedula: str) -> None:
+        with get_connection() as conn:
+            conn.execute("DELETE FROM clientes WHERE cedula = ?", (cedula,))
+            conn.commit()
 
 # ---------------------------------------------------------------------------
 # VentasDAO

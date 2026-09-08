@@ -33,26 +33,114 @@ from utils.analisis import calcular_analisis_inversion             # noqa: E402
 # ---------------------------------------------------------------------------
 # Tema y paleta de colores
 # ---------------------------------------------------------------------------
-ctk.set_appearance_mode("dark")
+import json as _json
+
+_THEME_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "theme.json"
+
+# Paletas completas disponibles (sincronizadas con dashboard.py)
+_PALETAS = {
+    "Claro Azul": {
+        "bg_root": "#f0f4ff", "bg_sidebar": "#e8edf8", "bg_card": "#ffffff",
+        "bg_input": "#e2e8f7", "accent": "#2563eb", "accent_hover": "#1d4ed8",
+        "danger": "#dc2626", "danger_hover": "#b91c1c",
+        "success": "#16a34a", "text_primary": "#1e293b", "text_muted": "#64748b",
+        "border": "#c7d2e8", "row_even": "#f0f4ff", "row_odd": "#e8edf8",
+        "row_selected": "#bfdbfe",
+    },
+    "Claro Morado": {
+        "bg_root": "#f5f0ff", "bg_sidebar": "#ede8ff", "bg_card": "#ffffff",
+        "bg_input": "#e9e0ff", "accent": "#7c3aed", "accent_hover": "#6d28d9",
+        "danger": "#dc2626", "danger_hover": "#b91c1c",
+        "success": "#16a34a", "text_primary": "#1e1b4b", "text_muted": "#6d28d9",
+        "border": "#d8b4fe", "row_even": "#f5f0ff", "row_odd": "#ede8ff",
+        "row_selected": "#ddd6fe",
+    },
+    "Claro Celeste": {
+        "bg_root": "#f0faff", "bg_sidebar": "#e0f4ff", "bg_card": "#ffffff",
+        "bg_input": "#d0ebff", "accent": "#0284c7", "accent_hover": "#0369a1",
+        "danger": "#dc2626", "danger_hover": "#b91c1c",
+        "success": "#16a34a", "text_primary": "#0c1a2e", "text_muted": "#0369a1",
+        "border": "#bae6fd", "row_even": "#f0faff", "row_odd": "#e0f4ff",
+        "row_selected": "#bae6fd",
+    },
+    "Oscuro Azul": {
+        "bg_root": "#0f1117", "bg_sidebar": "#16181f", "bg_card": "#1c1f2b",
+        "bg_input": "#252836", "accent": "#4f8ef7", "accent_hover": "#3a6fd8",
+        "danger": "#e05c5c", "danger_hover": "#c94a4a",
+        "success": "#3ecf8e", "text_primary": "#e8eaf0", "text_muted": "#8b91a7",
+        "border": "#2e3246", "row_even": "#1c1f2b", "row_odd": "#212438",
+        "row_selected": "#2a3a6a",
+    },
+    "Oscuro Morado": {
+        "bg_root": "#0e0a14", "bg_sidebar": "#130e1c", "bg_card": "#1a1525",
+        "bg_input": "#221c30", "accent": "#9b59b6", "accent_hover": "#7d3c98",
+        "danger": "#e05c5c", "danger_hover": "#c94a4a",
+        "success": "#3ecf8e", "text_primary": "#e8e0f0", "text_muted": "#9b7cc0",
+        "border": "#3a2a50", "row_even": "#1a1525", "row_odd": "#221c30",
+        "row_selected": "#2d1a4a",
+    },
+    "Oscuro Verde": {
+        "bg_root": "#0a1210", "bg_sidebar": "#0d1a15", "bg_card": "#111d18",
+        "bg_input": "#172419", "accent": "#3ecf8e", "accent_hover": "#27ae60",
+        "danger": "#e05c5c", "danger_hover": "#c94a4a",
+        "success": "#4f8ef7", "text_primary": "#e0f0e8", "text_muted": "#7ab89a",
+        "border": "#1e3828", "row_even": "#111d18", "row_odd": "#172419",
+        "row_selected": "#1a3a28",
+    },
+    "Oscuro Dorado": {
+        "bg_root": "#130f08", "bg_sidebar": "#1a1508", "bg_card": "#1e190f",
+        "bg_input": "#28220e", "accent": "#f0a500", "accent_hover": "#c8880a",
+        "danger": "#e05c5c", "danger_hover": "#c94a4a",
+        "success": "#3ecf8e", "text_primary": "#f5ecd8", "text_muted": "#b89050",
+        "border": "#3a2c0a", "row_even": "#1e190f", "row_odd": "#28220e",
+        "row_selected": "#3a2c0a",
+    },
+    "Oscuro Rojo": {
+        "bg_root": "#130a0a", "bg_sidebar": "#1a0e0e", "bg_card": "#1f1212",
+        "bg_input": "#2a1818", "accent": "#e05c5c", "accent_hover": "#c04040",
+        "danger": "#f0a500", "danger_hover": "#c88800",
+        "success": "#3ecf8e", "text_primary": "#f0e0e0", "text_muted": "#c08080",
+        "border": "#3a1010", "row_even": "#1f1212", "row_odd": "#2a1818",
+        "row_selected": "#3a1010",
+    },
+}
+
+_DEFAULT_TEMA = "Claro Azul"
+
+def _leer_nombre_tema() -> str:
+    try:
+        with open(_THEME_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return _json.load(f).get("tema", _DEFAULT_TEMA)
+    except Exception:
+        return _DEFAULT_TEMA
+
+def _construir_colors(nombre_tema: str) -> dict:
+    paleta = _PALETAS.get(nombre_tema, _PALETAS[_DEFAULT_TEMA])
+    return {
+        "bg_root":      paleta["bg_root"],
+        "bg_sidebar":   paleta.get("bg_sidebar", paleta["bg_root"]),
+        "bg_card":      paleta["bg_card"],
+        "bg_input":     paleta["bg_input"],
+        "accent":       paleta["accent"],
+        "accent_hover": paleta["accent_hover"],
+        "danger":       paleta["danger"],
+        "danger_hover": paleta.get("danger_hover", paleta["danger"]),
+        "success":      paleta["success"],
+        "text_primary": paleta["text_primary"],
+        "text_muted":   paleta["text_muted"],
+        "border":       paleta["border"],
+        "row_even":     paleta["row_even"],
+        "row_odd":      paleta["row_odd"],
+        "row_selected": paleta["row_selected"],
+    }
+
+# Aplicar modo claro u oscuro según el tema seleccionado
+_TEMA_ACTUAL = _leer_nombre_tema()
+_ES_CLARO    = _TEMA_ACTUAL.startswith("Claro")
+ctk.set_appearance_mode("Light" if _ES_CLARO else "Dark")
 ctk.set_default_color_theme("blue")
 
-COLORS = {
-    "bg_root":      "#0f1117",
-    "bg_sidebar":   "#16181f",
-    "bg_card":      "#1c1f2b",
-    "bg_input":     "#252836",
-    "accent":       "#4f8ef7",
-    "accent_hover": "#3a6fd8",
-    "danger":       "#e05c5c",
-    "danger_hover": "#c94a4a",
-    "success":      "#3ecf8e",
-    "text_primary": "#e8eaf0",
-    "text_muted":   "#8b91a7",
-    "border":       "#2e3246",
-    "row_even":     "#1c1f2b",
-    "row_odd":      "#212438",
-    "row_selected": "#2a3a6a",
-}
+COLORS = _construir_colors(_TEMA_ACTUAL)
 
 FONT_FAMILY = "Segoe UI"
 
@@ -123,14 +211,15 @@ class FormPanel(ctk.CTkFrame):
 
     # Campos del formulario en orden de aparición
     FIELDS = [
-        ("nombre",         "Nombre *",          "Ej: Resistencia calefactora"),
-        ("modelo",         "Modelo",            "(N/A)"),
-        ("marca",          "Marca",             "(N/A)"),
-        ("precio_entrada", "Precio Entrada * (USD)", "0.00"),
-        ("precio_venta",   "Precio Venta *",         "0.00"),
-        ("cantidad",       "Cantidad *",        "0"),
-        ("sku",            "Código / SKU *",    "Ej: TERM-TX200-GNC"),
-        ("ubicacion",      "Ubicación",         "Ej: Estante A-1"),
+        ("nombre",         "Nombre *",                       "Ej: Resistencia calefactora"),
+        ("modelo",         "Modelo",                         "(N/A)"),
+        ("marca",          "Marca",                          "(N/A)"),
+        ("precio_entrada", "Precio Entrada * (USD)",          "0.00"),
+        ("precio_venta",   "Precio Venta *",                  "0.00"),
+        ("cantidad",       "Cantidad *",                      "0"),
+        ("stock_minimo",   "Avisar si stock baja de ↓",       "5"),
+        ("sku",            "Código / SKU *",                  "Ej: TERM-TX200-GNC"),
+        ("ubicacion",      "Ubicación",                       "Ej: Estante A-1"),
     ]
 
     # Valores por defecto al abrir formulario nuevo
@@ -140,7 +229,7 @@ class FormPanel(ctk.CTkFrame):
     }
 
     # Campos que DEBEN estar llenos y válidos para habilitar el botón
-    _REQUIRED_NUMERIC = {"precio_entrada", "precio_venta", "cantidad"}
+    _REQUIRED_NUMERIC = {"precio_entrada", "precio_venta", "cantidad", "stock_minimo"}
     _REQUIRED_TEXT    = {"nombre", "sku"}
 
     def __init__(self, parent, dao: InventarioDAO, refresh_callback, **kwargs):
@@ -282,37 +371,14 @@ class FormPanel(ctk.CTkFrame):
         var.trace_add("write", lambda *_: self._validate())
         self._vars[key] = var
 
-        if key == "precio_venta":
-            f = ctk.CTkFrame(parent, fg_color="transparent")
-            f.grid(row=row * 2 + 1, column=0, padx=4, pady=(0, 2), sticky="ew")
-            f.grid_columnconfigure(0, weight=1)
-            
-            entry = ctk.CTkEntry(
-                f, textvariable=var, placeholder_text=placeholder,
-                font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"],
-                border_color=COLORS["border"], text_color=COLORS["text_primary"],
-                height=36, corner_radius=8
-            )
-            entry.grid(row=0, column=0, sticky="ew")
-            
-            self._moneda_var = ctk.StringVar(value="USD")
-            ctk.CTkSegmentedButton(
-                f, values=["USD", "Bs"], variable=self._moneda_var,
-                font=(FONT_FAMILY, 12, "bold"), selected_color=COLORS["accent"],
-                selected_hover_color=COLORS["accent_hover"],
-                unselected_color=COLORS["bg_input"], height=36
-            ).grid(row=0, column=1, padx=(6, 0))
-            
-            self._entries[key] = entry
-        else:
-            entry = ctk.CTkEntry(
-                parent, textvariable=var, placeholder_text=placeholder,
-                font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"],
-                border_color=COLORS["border"], text_color=COLORS["text_primary"],
-                height=36, corner_radius=8
-            )
-            entry.grid(row=row * 2 + 1, column=0, padx=4, pady=(0, 2), sticky="ew")
-            self._entries[key] = entry
+        entry = ctk.CTkEntry(
+            parent, textvariable=var, placeholder_text=placeholder,
+            font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"], text_color=COLORS["text_primary"],
+            height=36, corner_radius=8
+        )
+        entry.grid(row=row * 2 + 1, column=0, padx=4, pady=(0, 2), sticky="ew")
+        self._entries[key] = entry
 
     # ------------------------------------------------------------------
     # Validación en tiempo real
@@ -442,15 +508,12 @@ class FormPanel(ctk.CTkFrame):
             if not values.get(campo, ""):
                 return None
 
-        # Parsear numéricos (ya validados, pero segúro)
+        # Parsear numéricos (ya validados, pero segúros)
         try:
             values["precio_entrada"] = float(values["precio_entrada"])
-            raw_pv = float(values["precio_venta"])
-            if hasattr(self, "_moneda_var") and self._moneda_var.get() == "Bs":
-                values["precio_venta"] = round(raw_pv / self._tasa, 2)
-            else:
-                values["precio_venta"] = raw_pv
+            values["precio_venta"]   = float(values["precio_venta"])
             values["cantidad"]       = int(float(values["cantidad"]))
+            values["stock_minimo"]   = max(0, int(float(values.get("stock_minimo", 5))))
         except ValueError:
             return None
 
@@ -468,11 +531,10 @@ class FormPanel(ctk.CTkFrame):
             "precio_entrada": str(record.get("precio_entrada", "")),
             "precio_venta":   str(record.get("precio_venta", "")),
             "cantidad":       str(record.get("cantidad", "")),
+            "stock_minimo":   str(record.get("stock_minimo", 5)),
             "sku":            record.get("sku", ""),
             "ubicacion":      record.get("ubicacion", "") or "",
         }
-        if hasattr(self, "_moneda_var"):
-            self._moneda_var.set("USD")
         self._img_ruta = record.get("imagen_ruta", "")
         if self._img_ruta:
             self._lbl_img.configure(text=Path(self._img_ruta).name)
@@ -637,6 +699,7 @@ class InventoryTable(ctk.CTkFrame):
         # Tags para filas alternas
         self._tree.tag_configure("even", background=COLORS["row_even"])
         self._tree.tag_configure("odd",  background="#212438")
+        self._tree.tag_configure("out_of_stock", foreground="#e05c5c")
 
     # ------------------------------------------------------------------
     # API pública
@@ -648,7 +711,11 @@ class InventoryTable(ctk.CTkFrame):
             self._tree.delete(item)
 
         for i, row in enumerate(rows):
-            tag = "even" if i % 2 == 0 else "odd"
+            if row.get("cantidad", 0) <= 0:
+                tag = "out_of_stock"
+            else:
+                tag = "even" if i % 2 == 0 else "odd"
+                
             values = (
                 row["id"],
                 row.get("sku", ""),
@@ -661,6 +728,7 @@ class InventoryTable(ctk.CTkFrame):
                 row.get("ubicacion", "") or "—",
             )
             self._tree.insert("", "end", iid=str(row["id"]), values=values, tags=(tag,))
+
 
         self._count_label.configure(text=f"{len(rows)} repuesto(s)")
 
