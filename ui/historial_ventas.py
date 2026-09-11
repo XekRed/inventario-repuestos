@@ -515,8 +515,10 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         
         try:
             venta_id = int(self._ventas_tree.item(sel[0], "values")[0])
-            venta = self._dao.obtener_por_id(venta_id)
-            detalles = self._dao.obtener_detalles(venta_id)
+            venta = next((v for v in self._dao.listar_ventas() if v["id"] == venta_id), None)
+            if not venta:
+                raise ValueError("Venta no encontrada")
+            detalles = self._dao.obtener_detalles_venta(venta_id)
             
             empresas_dao = EmpresasDAO()
             empresa = empresas_dao.obtener() or {}
