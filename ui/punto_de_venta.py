@@ -508,7 +508,7 @@ class CartPanel(ctk.CTkFrame):
                               stretch=(col_id == "nombre"))
         self._tree.tag_configure("even",    background=C["row_even"])
         self._tree.tag_configure("odd",     background=C["row_odd"])
-        self._tree.tag_configure("sel_row", background=C["row_selected"], foreground=C["text_primary"])
+        self._tree.tag_configure("sel_row", background=C["row_sel"], foreground=C["text"])
         v_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=v_scroll.set)
         self._tree.grid(row=0, column=0, sticky="nsew")
