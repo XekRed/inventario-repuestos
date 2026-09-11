@@ -521,7 +521,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             detalles = self._dao.obtener_detalles_venta(venta_id)
             
             empresas_dao = EmpresasDAO()
-            empresa = empresas_dao.obtener() or {}
+            empresa = empresas_dao.obtener_primera() or {}
             
             ruta_pdf = generar_factura_venta(venta, detalles, empresa, self._tasa_actual)
             
