@@ -488,6 +488,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         self._lbl_total_detalle.configure(
             text=f"TOTAL:  ${total:,.2f} USD   |   Pagado con: {metodo}",
         )
+        self._btn_factura.configure(state="normal")
 
     def _limpiar_detalle(self):
         """Vacía la tabla de detalle y resetea las etiquetas."""
@@ -498,6 +499,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             text_color=C["muted"],
         )
         self._lbl_total_detalle.configure(text="")
+        self._btn_factura.configure(state="disabled")
 
 
     def _generar_factura_seleccionada(self):
