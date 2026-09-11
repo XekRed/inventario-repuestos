@@ -89,6 +89,11 @@ def inicializar_db() -> None:
         actualizado_en  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
     );
 
+    CREATE TABLE IF NOT EXISTS areas (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre          TEXT    NOT NULL UNIQUE
+    );
+
     CREATE TABLE IF NOT EXISTS empresas (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre          TEXT    NOT NULL UNIQUE,
@@ -186,6 +191,20 @@ def inicializar_db() -> None:
         cantidad     INTEGER NOT NULL DEFAULT 1,
         unidad       TEXT    NOT NULL DEFAULT 'Unidad'
     );
+
+    CREATE TABLE IF NOT EXISTS combos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre      TEXT    NOT NULL UNIQUE,
+        descripcion TEXT    NOT NULL DEFAULT '',
+        descuento   REAL    NOT NULL DEFAULT 0 CHECK(descuento >= 0 AND descuento <= 100)
+    );
+
+    CREATE TABLE IF NOT EXISTS combo_items (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        combo_id    INTEGER NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
+        producto_id INTEGER NOT NULL REFERENCES inventario(id) ON DELETE CASCADE,
+        cantidad    INTEGER NOT NULL DEFAULT 1 CHECK(cantidad > 0)
+    );
     """
     try:
         with get_connection() as conn:
@@ -208,6 +227,8 @@ def _migraciones_seguras(conn: sqlite3.Connection) -> None:
         "ALTER TABLE proveedores ADD COLUMN representante TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE usuarios ADD COLUMN empresa_id INTEGER REFERENCES empresas(id)",
         "ALTER TABLE inventario ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 5",
+        "ALTER TABLE inventario ADD COLUMN area_id INTEGER REFERENCES areas(id)",
+        "ALTER TABLE pedido_items ADD COLUMN precio REAL NOT NULL DEFAULT 0",
     ]
     for sql in alteraciones:
         try:
@@ -215,6 +236,23 @@ def _migraciones_seguras(conn: sqlite3.Connection) -> None:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # columna ya existe
+
+    # Crear tablas de combos si no existen (para DBs antiguas)
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS combos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre      TEXT    NOT NULL UNIQUE,
+        descripcion TEXT    NOT NULL DEFAULT '',
+        descuento   REAL    NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS combo_items (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        combo_id    INTEGER NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
+        producto_id INTEGER NOT NULL REFERENCES inventario(id) ON DELETE CASCADE,
+        cantidad    INTEGER NOT NULL DEFAULT 1
+    );
+    """)
+
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +301,7 @@ class InventarioDAO:
         descripcion: Optional[str] = None,
         imagen_ruta: Optional[str] = None,
         stock_minimo: int = 5,
+        area_id: Optional[int] = None,
     ) -> int:
         """
         Inserta un nuevo repuesto en el inventario.
@@ -277,16 +316,16 @@ class InventarioDAO:
         sql = """
         INSERT INTO inventario
             (nombre, modelo, marca, precio_entrada, precio_venta,
-             cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo)
+             cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo, area_id)
         VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             with get_connection() as conn:
                 cursor = conn.execute(
                     sql,
                     (nombre, modelo, marca, precio_entrada, precio_venta,
-                     cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo),
+                     cantidad, sku, ubicacion, descripcion, imagen_ruta, stock_minimo, area_id),
                 )
                 new_id = cursor.lastrowid
                 logger.info("Repuesto creado — ID: %s, SKU: %s", new_id, sku)
@@ -309,7 +348,12 @@ class InventarioDAO:
         Returns:
             dict con los campos del repuesto, o None si no existe.
         """
-        sql = "SELECT * FROM inventario WHERE id = ?"
+        sql = """
+            SELECT i.*, a.nombre as area_nombre 
+            FROM inventario i
+            LEFT JOIN areas a ON i.area_id = a.id
+            WHERE i.id = ?
+        """
         try:
             with get_connection() as conn:
                 row = conn.execute(sql, (repuesto_id,)).fetchone()
@@ -336,7 +380,12 @@ class InventarioDAO:
                 f"Columna de orden inválida: '{orden_por}'. "
                 f"Use una de: {columnas_validas}"
             )
-        sql = f"SELECT * FROM inventario ORDER BY {orden_por}"
+        sql = f"""
+            SELECT i.*, a.nombre as area_nombre 
+            FROM inventario i
+            LEFT JOIN areas a ON i.area_id = a.id
+            ORDER BY i.{orden_por}
+        """
         try:
             with get_connection() as conn:
                 rows = conn.execute(sql).fetchall()
@@ -393,10 +442,12 @@ class InventarioDAO:
             Lista de dicts con los resultados encontrados.
         """
         sql = """
-        SELECT * FROM inventario
-        WHERE  sku = ?
-           OR  nombre LIKE ?
-        ORDER BY nombre
+        SELECT i.*, a.nombre as area_nombre
+        FROM inventario i
+        LEFT JOIN areas a ON i.area_id = a.id
+        WHERE  i.sku = ?
+           OR  i.nombre LIKE ?
+        ORDER BY i.nombre
         """
         patron = f"%{termino}%"
         try:
@@ -417,7 +468,12 @@ class InventarioDAO:
         Returns:
             dict del repuesto, o None si no existe.
         """
-        sql = "SELECT * FROM inventario WHERE sku = ?"
+        sql = """
+            SELECT i.*, a.nombre as area_nombre 
+            FROM inventario i
+            LEFT JOIN areas a ON i.area_id = a.id
+            WHERE i.sku = ?
+        """
         try:
             with get_connection() as conn:
                 row = conn.execute(sql, (sku,)).fetchone()
@@ -448,7 +504,7 @@ class InventarioDAO:
         columnas_validas = {
             "nombre", "modelo", "marca", "precio_entrada", "precio_venta",
             "cantidad", "sku", "ubicacion", "descripcion", "imagen_ruta",
-            "stock_minimo",
+            "stock_minimo", "area_id",
         }
         if not campos:
             raise ValueError("Debe proporcionar al menos un campo para actualizar.")
@@ -1006,6 +1062,33 @@ class VentasDAO:
 
 
 # ===========================================================================
+# DAO para Áreas
+# ===========================================================================
+
+class AreasDAO:
+    def crear(self, nombre: str) -> int:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO areas (nombre) VALUES (?)", (nombre.strip(),))
+            conn.commit()
+            return cursor.lastrowid
+
+    def listar(self) -> list[dict]:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM areas ORDER BY nombre")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def obtener_id_por_nombre(self, nombre: str) -> Optional[int]:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM areas WHERE nombre = ?", (nombre.strip(),))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+
+# ===========================================================================
 # DAO: Deudores (Fiado)
 # ===========================================================================
 
@@ -1300,3 +1383,152 @@ if __name__ == "__main__":
     ok = dao.eliminar(id2)
     print(f"  Eliminación exitosa: {ok}")
     print(f"  Total registros restantes: {len(dao.listar_todos())}")
+
+
+# ---------------------------------------------------------------------------
+# CombosDAO
+# ---------------------------------------------------------------------------
+
+class CombosDAO:
+    """Data Access Object para la tabla combos y combo_items."""
+
+    # ------------------------------------------------------------------
+    # CREATE
+    # ------------------------------------------------------------------
+
+    def crear(self, nombre: str, descripcion: str = "", descuento: float = 0.0,
+              items: list[dict] = None) -> int:
+        """
+        Crea un combo con sus items.
+
+        Args:
+            nombre:      Nombre único del combo.
+            descripcion: Descripción opcional.
+            descuento:   Porcentaje de descuento (0-100).
+            items:       Lista de dicts [{producto_id, cantidad}, ...].
+
+        Returns:
+            int: ID del combo creado.
+        """
+        descuento = max(0.0, min(100.0, float(descuento)))
+        try:
+            with get_connection() as conn:
+                cur = conn.execute(
+                    "INSERT INTO combos (nombre, descripcion, descuento) VALUES (?, ?, ?)",
+                    (nombre.strip(), descripcion.strip(), descuento)
+                )
+                combo_id = cur.lastrowid
+                if items:
+                    for item in items:
+                        conn.execute(
+                            "INSERT INTO combo_items (combo_id, producto_id, cantidad) VALUES (?, ?, ?)",
+                            (combo_id, item["producto_id"], max(1, int(item["cantidad"])))
+                        )
+                conn.commit()
+                logger.info("Combo creado — ID: %s, nombre: %s", combo_id, nombre)
+                return combo_id
+        except sqlite3.IntegrityError as e:
+            raise ValueError(f"El combo '{nombre}' ya existe.") from e
+
+    # ------------------------------------------------------------------
+    # READ
+    # ------------------------------------------------------------------
+
+    def listar(self) -> list[dict]:
+        """Lista todos los combos con su precio total calculado."""
+        sql = """
+        SELECT c.id, c.nombre, c.descripcion, c.descuento,
+               COUNT(ci.id) AS num_items,
+               SUM(i.precio_venta * ci.cantidad) AS precio_base
+        FROM combos c
+        LEFT JOIN combo_items ci ON ci.combo_id = c.id
+        LEFT JOIN inventario  i  ON i.id = ci.producto_id
+        GROUP BY c.id
+        ORDER BY c.nombre
+        """
+        with get_connection() as conn:
+            rows = conn.execute(sql).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                pb = d["precio_base"] or 0.0
+                d["precio_final"] = pb * (1 - d["descuento"] / 100)
+                result.append(d)
+            return result
+
+    def obtener_items(self, combo_id: int) -> list[dict]:
+        """Devuelve los items de un combo con datos del producto."""
+        sql = """
+        SELECT ci.id, ci.producto_id, ci.cantidad,
+               i.nombre, i.sku, i.precio_venta, i.cantidad AS stock
+        FROM combo_items ci
+        JOIN inventario i ON i.id = ci.producto_id
+        WHERE ci.combo_id = ?
+        ORDER BY i.nombre
+        """
+        with get_connection() as conn:
+            rows = conn.execute(sql, (combo_id,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def obtener_detalle_completo(self, combo_id: int) -> Optional[dict]:
+        """
+        Devuelve el combo con sus items, ideal para el POS.
+        Returns None si el combo no existe.
+        """
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, nombre, descripcion, descuento FROM combos WHERE id = ?",
+                (combo_id,)
+            ).fetchone()
+            if not row:
+                return None
+            combo = dict(row)
+            combo["items"] = self.obtener_items(combo_id)
+            pb = sum(it["precio_venta"] * it["cantidad"] for it in combo["items"])
+            combo["precio_base"] = pb
+            combo["precio_final"] = pb * (1 - combo["descuento"] / 100)
+            return combo
+
+    # ------------------------------------------------------------------
+    # UPDATE
+    # ------------------------------------------------------------------
+
+    def actualizar(self, combo_id: int, nombre: str = None, descripcion: str = None,
+                   descuento: float = None, items: list[dict] = None) -> bool:
+        """Actualiza datos del combo y opcionalmente reemplaza todos sus items."""
+        updates = {}
+        if nombre is not None:
+            updates["nombre"] = nombre.strip()
+        if descripcion is not None:
+            updates["descripcion"] = descripcion.strip()
+        if descuento is not None:
+            updates["descuento"] = max(0.0, min(100.0, float(descuento)))
+        if not updates and items is None:
+            return False
+
+        with get_connection() as conn:
+            if updates:
+                cols = ", ".join(f"{k} = ?" for k in updates)
+                vals = list(updates.values()) + [combo_id]
+                conn.execute(f"UPDATE combos SET {cols} WHERE id = ?", vals)
+            if items is not None:
+                conn.execute("DELETE FROM combo_items WHERE combo_id = ?", (combo_id,))
+                for item in items:
+                    conn.execute(
+                        "INSERT INTO combo_items (combo_id, producto_id, cantidad) VALUES (?, ?, ?)",
+                        (combo_id, item["producto_id"], max(1, int(item["cantidad"])))
+                    )
+            conn.commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # DELETE
+    # ------------------------------------------------------------------
+
+    def eliminar(self, combo_id: int) -> bool:
+        """Elimina un combo y todos sus items (CASCADE)."""
+        with get_connection() as conn:
+            cur = conn.execute("DELETE FROM combos WHERE id = ?", (combo_id,))
+            conn.commit()
+            return cur.rowcount > 0
+

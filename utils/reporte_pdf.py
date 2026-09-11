@@ -143,6 +143,11 @@ def generar_reporte_dia(
     _draw_summary_cards(pdf, resumen, tasa_bs)
     pdf.ln(8)
 
+    # ── Desglose por método de pago ───────────────────────────────────
+    if ventas:
+        _draw_metodos_pago(pdf, ventas)
+        pdf.ln(8)
+
     # ── Tabla de productos vendidos ───────────────────────────────────
     if resumen.get("productos"):
         _draw_productos_table(pdf, resumen["productos"])
@@ -243,6 +248,55 @@ def _table_row(pdf: ReportePDF, valores: list[tuple], row_idx: int):
     pdf.ln()
 
 
+def _draw_metodos_pago(pdf: ReportePDF, ventas: list[dict]):
+    """Sección con desglose del total vendido agrupado por método de pago."""
+    from collections import defaultdict
+    totales: dict[str, dict] = defaultdict(lambda: {"count": 0, "usd": 0.0, "bs": 0.0})
+    for v in ventas:
+        metodo = v.get("metodo_pago") or "Punto"
+        totales[metodo]["count"] += 1
+        totales[metodo]["usd"]   += v.get("total_usd", 0.0)
+        totales[metodo]["bs"]    += v.get("total_bs",  0.0)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*COLOR_BG_HEADER)
+    pdf.cell(0, 7, "Total por Método de Pago", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_draw_color(*COLOR_SUCCESS)
+    pdf.set_line_width(0.8)
+    pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 174, pdf.get_y())
+    pdf.ln(3)
+
+    # Tarjetas horizontales por método
+    cols_metodo = [
+        ("Método de Pago",  60, "L"),
+        ("Transacciones",   38, "C"),
+        ("Total USD",        40, "R"),
+        ("Total Bs.",        36, "R"),
+    ]
+    _table_header(pdf, cols_metodo)
+    for i, (metodo, datos) in enumerate(sorted(totales.items())):
+        _table_row(pdf, [
+            (f"- {metodo}",                      60, "L"),
+            (str(datos["count"]),                38, "C"),
+            (f"${datos['usd']:,.2f}",             40, "R"),
+            (f"Bs. {datos['bs']:,.2f}",           36, "R"),
+        ], i)
+
+    # Fila total
+    total_usd = sum(d["usd"] for d in totales.values())
+    total_bs  = sum(d["bs"]  for d in totales.values())
+    total_cnt = sum(d["count"] for d in totales.values())
+    pdf.set_fill_color(*COLOR_BG_HEADER)
+    pdf.set_text_color(*COLOR_SUCCESS)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_draw_color(*COLOR_BORDER)
+    pdf.cell(60,  8, "TOTAL GENERAL", border=1, align="R", fill=True)
+    pdf.cell(38,  8, str(total_cnt),  border=1, align="C", fill=True)
+    pdf.cell(40,  8, f"${total_usd:,.2f}",        border=1, align="R", fill=True)
+    pdf.cell(36,  8, f"Bs. {total_bs:,.2f}",      border=1, align="R", fill=True)
+    pdf.ln()
+
+
 def _draw_productos_table(pdf: ReportePDF, productos: list[dict]):
     """Tabla de productos vendidos agrupados."""
     pdf.set_font("Helvetica", "B", 12)
@@ -291,10 +345,11 @@ def _draw_ventas_table(pdf: ReportePDF, ventas: list[dict]):
 
     cols = [
         ("# Venta",   18, "C"),
-        ("Hora",       22, "C"),
-        ("Cliente",    72, "L"),
-        ("Cédula",     32, "C"),
-        ("Total USD",  30, "R"),
+        ("Hora",       20, "C"),
+        ("Cliente",    58, "L"),
+        ("Cédula",     28, "C"),
+        ("Total USD",  28, "R"),
+        ("Método",     22, "C"),
     ]
     _table_header(pdf, cols)
 
@@ -304,11 +359,13 @@ def _draw_ventas_table(pdf: ReportePDF, ventas: list[dict]):
             hora = v["fecha"].split("T")[1][:5] if "T" in v["fecha"] else v["fecha"]
         except Exception:
             hora = ""
+        metodo = (v.get("metodo_pago") or "Punto")[:8]
 
         _table_row(pdf, [
-            (str(v["id"]),             18, "C"),
-            (hora,                      22, "C"),
-            (v["nombre_cliente"][:35], 72, "L"),
-            (v["cedula_cliente"],       32, "C"),
-            (f"${v['total_usd']:,.2f}", 30, "R"),
+            (str(v["id"]),              18, "C"),
+            (hora,                       20, "C"),
+            (v["nombre_cliente"][:28],   58, "L"),
+            (v["cedula_cliente"],         28, "C"),
+            (f"${v['total_usd']:,.2f}",   28, "R"),
+            (metodo,                      22, "C"),
         ], i)

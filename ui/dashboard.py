@@ -33,21 +33,319 @@ from utils.updater import abrir_actualizador, get_local_version  # noqa: E402
 # ---------------------------------------------------------------------------
 # Tema — se aplica al arrancar según lo guardado en config/theme.json
 # ---------------------------------------------------------------------------
-from ui.app import _PALETAS, _leer_nombre_tema, _construir_colors  # noqa: E402
+from ui.app import _PALETAS, _leer_nombre_tema, _construir_colors, _TEMAS_CLAROS  # noqa: E402
 
 _TEMA_DASH   = _leer_nombre_tema()
-_ES_CLARO_D  = _TEMA_DASH.startswith("Claro")
+_ES_CLARO_D  = _TEMA_DASH in _TEMAS_CLAROS
 ctk.set_appearance_mode("Light" if _ES_CLARO_D else "Dark")
 ctk.set_default_color_theme("blue")
 
 F = FONT_FAMILY   # alias corto
 
-# Colores de la sidebar — se toman de la paleta activa
-_pal_d        = _PALETAS.get(_TEMA_DASH, _PALETAS["Claro Azul"])
-C_SIDEBAR     = _pal_d.get("sidebar",              _pal_d["bg_sidebar"] if "bg_sidebar" in _pal_d else "#1e3a8a")
-C_SIDEBAR_BTN = _pal_d.get("sidebar_btn",          _pal_d.get("bg_input", "#1e40af"))
-C_ACTIVE_BTN  = _pal_d.get("sidebar_active",       _pal_d.get("accent", "#3b82f6"))
-C_ACTIVE_TEXT = _pal_d.get("sidebar_active_text",  "#ffffff")
+
+
+
+
+# ===========================================================================
+# CombosPanel
+# ===========================================================================
+
+class CombosPanel(ctk.CTkFrame):
+    """Panel de gestión de combos embebido en la pestaña Combos de InventarioPage."""
+
+    def __init__(self, parent, dao: InventarioDAO, es_admin: bool, **kwargs):
+        super().__init__(parent, fg_color=COLORS["bg_root"], corner_radius=0, **kwargs)
+        self._dao = dao
+        self._es_admin = es_admin
+        from database.inventario_db import CombosDAO
+        self._combos_dao = CombosDAO()
+        self._pending_items: list[dict] = []   # items in current form
+        self._selected_combo_id: int | None = None
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self._build()
+
+    def _build(self):
+        # ── Left: combo list ─────────────────────────────────────────
+        left = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10)
+        left.grid(row=0, column=0, padx=(16, 0), pady=16, sticky="nsew")
+        left.grid_rowconfigure(1, weight=1)
+        left.grid_columnconfigure(0, weight=1)
+        left.configure(width=260)
+
+        ctk.CTkLabel(left, text="🎁  Combos registrados",
+                     font=(F, 14, "bold"), text_color=COLORS["text_primary"]
+                     ).grid(row=0, column=0, padx=12, pady=(12, 6), sticky="w")
+
+        import tkinter as _tk
+        self._combo_listbox = _tk.Listbox(
+            left, bg=COLORS["bg_card"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["row_selected"], selectforeground=COLORS["text_primary"],
+            font=(F, 11), relief="flat", borderwidth=0, highlightthickness=0,
+            activestyle="none"
+        )
+        self._combo_listbox.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
+        self._combo_listbox.bind("<<ListboxSelect>>", self._on_combo_select)
+
+        if self._es_admin:
+            ctk.CTkButton(left, text="🗑️ Eliminar Combo", height=32,
+                          fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"],
+                          text_color="#fff", font=(F, 12), corner_radius=8,
+                          command=self._on_eliminar).grid(
+                row=2, column=0, padx=8, pady=(0, 8), sticky="ew")
+
+        # ── Right: form + detail ──────────────────────────────────────
+        right = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg_root"], corner_radius=0)
+        right.grid(row=0, column=1, padx=16, pady=16, sticky="nsew")
+        right.grid_columnconfigure(0, weight=1)
+
+        if self._es_admin:
+            self._build_combo_form(right)
+
+        # Detail area
+        self._detail_frame = ctk.CTkFrame(right, fg_color=COLORS["bg_card"], corner_radius=10)
+        self._detail_frame.grid(row=10, column=0, sticky="ew", pady=(8, 0))
+        self._detail_frame.grid_columnconfigure(0, weight=1)
+        self._lbl_detail = ctk.CTkLabel(
+            self._detail_frame, text="← Selecciona un combo para ver su contenido",
+            font=(F, 12), text_color=COLORS["text_muted"], wraplength=400
+        )
+        self._lbl_detail.pack(padx=16, pady=16, anchor="w")
+
+    def _build_combo_form(self, parent):
+        form = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=10)
+        form.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        form.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(form, text="➕ Nuevo Combo", font=(F, 14, "bold"),
+                     text_color=COLORS["text_primary"]).grid(
+            row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
+
+        for r, (lbl, attr) in enumerate([
+            ("Nombre *", "_cnombre"), ("Descripción", "_cdesc")
+        ], start=1):
+            ctk.CTkLabel(form, text=lbl, font=(F, 11), text_color=COLORS["text_muted"]
+                         ).grid(row=r, column=0, padx=(14, 6), pady=4, sticky="w")
+            entry = ctk.CTkEntry(form, height=32, font=(F, 12),
+                                 fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                 text_color=COLORS["text_primary"], corner_radius=8)
+            entry.grid(row=r, column=1, padx=(0, 14), pady=4, sticky="ew")
+            setattr(self, attr, entry)
+
+        ctk.CTkLabel(form, text="Descuento %", font=(F, 11), text_color=COLORS["text_muted"]
+                     ).grid(row=3, column=0, padx=(14, 6), pady=4, sticky="w")
+        self._cdesc_pct = ctk.CTkEntry(form, height=32, width=80, font=(F, 12),
+                                       fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                                       text_color=COLORS["accent"], corner_radius=8)
+        self._cdesc_pct.insert(0, "0")
+        self._cdesc_pct.grid(row=3, column=1, padx=(0, 14), pady=4, sticky="w")
+
+        # ── Product picker ────────────────────────────────────────────
+        ctk.CTkLabel(form, text="Productos del combo", font=(F, 12, "bold"),
+                     text_color=COLORS["text_primary"]).grid(
+            row=4, column=0, columnspan=2, padx=14, pady=(12, 4), sticky="w")
+
+        picker_row = ctk.CTkFrame(form, fg_color="transparent")
+        picker_row.grid(row=5, column=0, columnspan=2, padx=14, pady=(0, 4), sticky="ew")
+        picker_row.grid_columnconfigure(0, weight=1)
+
+        self._picker_var = ctk.StringVar()
+        self._picker_var.trace_add("write", lambda *_: self._filter_picker())
+        ctk.CTkEntry(picker_row, textvariable=self._picker_var,
+                     placeholder_text="🔍 Buscar producto...", height=30,
+                     font=(F, 11), fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                     text_color=COLORS["text_primary"], corner_radius=8
+                     ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        self._pick_qty_var = ctk.StringVar(value="1")
+        ctk.CTkEntry(picker_row, textvariable=self._pick_qty_var, width=50, height=30,
+                     font=(F, 12), fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+                     text_color=COLORS["text_primary"], corner_radius=8, justify="center"
+                     ).grid(row=0, column=1, padx=(0, 6))
+
+        ctk.CTkButton(picker_row, text="+ Agregar", height=30, width=90, font=(F, 11),
+                      fg_color=COLORS["success"], hover_color=COLORS["success"],
+                      text_color="#fff", corner_radius=8,
+                      command=self._on_add_item_picker).grid(row=0, column=2)
+
+        import tkinter as _tk
+        self._all_products = []
+        self._picker_box = _tk.Listbox(
+            form, bg=COLORS["bg_input"], fg=COLORS["text_primary"],
+            selectbackground=COLORS["accent"], selectforeground="#fff",
+            font=(F, 10), relief="flat", borderwidth=0, highlightthickness=0,
+            height=5, activestyle="none"
+        )
+        self._picker_box.grid(row=6, column=0, columnspan=2, padx=14, pady=(0, 4), sticky="ew")
+
+        # ── Pending items list ────────────────────────────────────────
+        ctk.CTkLabel(form, text="Items añadidos:", font=(F, 11, "bold"),
+                     text_color=COLORS["text_primary"]).grid(
+            row=7, column=0, columnspan=2, padx=14, pady=(6, 2), sticky="w")
+
+        self._items_frame = ctk.CTkFrame(form, fg_color=COLORS["bg_input"], corner_radius=8)
+        self._items_frame.grid(row=8, column=0, columnspan=2, padx=14, pady=(0, 6), sticky="ew")
+        self._items_frame.grid_columnconfigure(0, weight=1)
+        self._lbl_empty_items = ctk.CTkLabel(
+            self._items_frame, text="Sin productos aún",
+            font=(F, 10), text_color=COLORS["text_muted"]
+        )
+        self._lbl_empty_items.grid(padx=8, pady=6)
+
+        ctk.CTkButton(form, text="💾 Guardar Combo", height=36, font=(F, 13, "bold"),
+                      fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                      text_color="#fff", corner_radius=8,
+                      command=self._on_guardar_combo).grid(
+            row=9, column=0, columnspan=2, padx=14, pady=(4, 12), sticky="ew")
+
+        self._refresh_products()
+
+    def _refresh_products(self):
+        self._all_products = self._dao.listar_todos()
+        self._filter_picker()
+
+    def _filter_picker(self):
+        if not hasattr(self, '_picker_box'): return
+        term = self._picker_var.get().strip().lower()
+        self._picker_box.delete(0, "end")
+        for p in self._all_products:
+            if not term or term in p["nombre"].lower() or term in (p["sku"] or "").lower():
+                self._picker_box.insert("end", f"  [{p['sku']}] {p['nombre']}")
+
+    def _get_picker_product(self):
+        sel = self._picker_box.curselection()
+        if not sel: return None
+        term = self._picker_var.get().strip().lower()
+        visible = [p for p in self._all_products
+                   if not term or term in p["nombre"].lower() or term in (p["sku"] or "").lower()]
+        idx = sel[0]
+        return visible[idx] if idx < len(visible) else None
+
+    def _on_add_item_picker(self):
+        prod = self._get_picker_product()
+        if not prod: return
+        try:
+            qty = max(1, int(self._pick_qty_var.get()))
+        except ValueError:
+            qty = 1
+        # Update quantity if already exists
+        for item in self._pending_items:
+            if item["producto_id"] == prod["id"]:
+                item["cantidad"] += qty
+                self._refresh_items_display()
+                return
+        self._pending_items.append({
+            "producto_id": prod["id"],
+            "nombre":      prod["nombre"],
+            "precio_venta": prod["precio_venta"],
+            "cantidad":    qty,
+        })
+        self._refresh_items_display()
+
+    def _refresh_items_display(self):
+        for w in self._items_frame.winfo_children():
+            w.destroy()
+        if not self._pending_items:
+            ctk.CTkLabel(self._items_frame, text="Sin productos aún",
+                         font=(F, 10), text_color=COLORS["text_muted"]).grid(padx=8, pady=6)
+            return
+        for i, item in enumerate(self._pending_items):
+            row_f = ctk.CTkFrame(self._items_frame, fg_color="transparent")
+            row_f.grid(row=i, column=0, padx=6, pady=2, sticky="ew")
+            row_f.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(row_f,
+                         text=f"  {item['nombre']}  ×{item['cantidad']}  = ${item['precio_venta']*item['cantidad']:.2f}",
+                         font=(F, 10), text_color=COLORS["text_primary"], anchor="w"
+                         ).grid(row=0, column=0, sticky="w")
+            idx = i
+            ctk.CTkButton(row_f, text="✖", width=24, height=20, font=(F, 10),
+                          fg_color=COLORS["danger"], text_color="#fff", corner_radius=4,
+                          command=lambda x=idx: self._remove_item(x)
+                          ).grid(row=0, column=1, padx=(4, 0))
+
+    def _remove_item(self, idx):
+        if 0 <= idx < len(self._pending_items):
+            self._pending_items.pop(idx)
+            self._refresh_items_display()
+
+    def _on_guardar_combo(self):
+        nombre = self._cnombre.get().strip()
+        desc   = self._cdesc.get().strip()
+        try:
+            pct = max(0.0, min(100.0, float(self._cdesc_pct.get().strip() or "0")))
+        except ValueError:
+            pct = 0.0
+        if not nombre:
+            from tkinter import messagebox
+            messagebox.showwarning("Datos incompletos", "El nombre del combo es requerido.")
+            return
+        if not self._pending_items:
+            from tkinter import messagebox
+            messagebox.showwarning("Sin productos", "Agrega al menos un producto al combo.")
+            return
+        try:
+            self._combos_dao.crear(nombre=nombre, descripcion=desc, descuento=pct,
+                                   items=self._pending_items)
+            self._cnombre.delete(0, "end")
+            self._cdesc.delete(0, "end")
+            self._cdesc_pct.delete(0, "end")
+            self._cdesc_pct.insert(0, "0")
+            self._pending_items.clear()
+            self._refresh_items_display()
+            self.refresh()
+        except ValueError as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", str(e))
+
+    def _on_combo_select(self, _event=None):
+        sel = self._combo_listbox.curselection()
+        if not sel or not hasattr(self, '_combos_list'): return
+        self._selected_combo_id = self._combos_list[sel[0]]["id"]
+        combo = self._combos_dao.obtener_detalle_completo(self._selected_combo_id)
+        if not combo: return
+        for w in self._detail_frame.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(self._detail_frame,
+                     text=f"🎁 {combo['nombre']}  —  {combo['descuento']:.0f}% desc.  —  ${combo['precio_final']:.2f} USD",
+                     font=(F, 13, "bold"), text_color=COLORS["accent"]
+                     ).pack(padx=14, pady=(10, 4), anchor="w")
+        if combo.get("descripcion"):
+            ctk.CTkLabel(self._detail_frame, text=combo["descripcion"],
+                         font=(F, 11), text_color=COLORS["text_muted"]
+                         ).pack(padx=14, pady=(0, 6), anchor="w")
+        for it in combo["items"]:
+            ctk.CTkLabel(self._detail_frame,
+                         text=f"  • {it['nombre']}  ×{it['cantidad']}  = ${it['precio_venta']*it['cantidad']:.2f}",
+                         font=(F, 11), text_color=COLORS["text_primary"]
+                         ).pack(padx=14, pady=1, anchor="w")
+        ctk.CTkLabel(self._detail_frame,
+                     text=f"\n  Precio base: ${combo['precio_base']:.2f}  →  Con {combo['descuento']:.0f}% desc: ${combo['precio_final']:.2f}",
+                     font=(F, 11, "bold"), text_color=COLORS["success"]
+                     ).pack(padx=14, pady=(4, 10), anchor="w")
+
+    def _on_eliminar(self):
+        if self._selected_combo_id is None: return
+        from tkinter import messagebox
+        if messagebox.askyesno("Eliminar Combo", "¿Eliminar este combo?"):
+            self._combos_dao.eliminar(self._selected_combo_id)
+            self._selected_combo_id = None
+            self.refresh()
+
+    def refresh(self):
+        self._combos_list = self._combos_dao.listar()
+        self._combo_listbox.delete(0, "end")
+        for c in self._combos_list:
+            self._combo_listbox.insert(
+                "end",
+                f"  🎁 {c['nombre']}  ({c['num_items']} prod.)  -{c['descuento']:.0f}%  ${c['precio_final']:.2f}"
+            )
+        if hasattr(self, '_all_products'):
+            self._refresh_products()
+        for w in self._detail_frame.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(self._detail_frame, text="← Selecciona un combo para ver su contenido",
+                     font=(F, 12), text_color=COLORS["text_muted"]
+                     ).pack(padx=16, pady=16, anchor="w")
 
 
 # ===========================================================================
@@ -58,6 +356,7 @@ class InventarioPage(ctk.CTkFrame):
     """
     Frame completo de inventario reutilizando FormPanel, SearchBar,
     InventoryTable y DetailModal de ui/app.py.
+    Incluye pestaña de Combos.
     """
 
     def __init__(self, parent, dao: InventarioDAO, es_admin: bool,
@@ -68,18 +367,69 @@ class InventarioPage(ctk.CTkFrame):
         self._rol      = rol
         self._all_rows: list[dict] = []
         self._form     = None
+        self._active_tab = "inventario"
 
         self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(1 if es_admin else 0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         self._build()
         self._load_inventory()
 
     # ------------------------------------------------------------------
     def _build(self):
+        # ── Tab bar ───────────────────────────────────────────────────
+        tab_bar = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=0, height=44)
+        tab_bar.grid(row=0, column=0, sticky="ew")
+        tab_bar.grid_propagate(False)
+        tab_bar.grid_columnconfigure(2, weight=1)
+
+        self._btn_tab_inv = ctk.CTkButton(
+            tab_bar, text="📦  Inventario", width=140, height=34,
+            font=(F, 12, "bold"), fg_color=COLORS["accent"], text_color="#fff",
+            hover_color=COLORS["accent_hover"], corner_radius=8,
+            command=lambda: self._switch_tab("inventario")
+        )
+        self._btn_tab_inv.grid(row=0, column=0, padx=(10, 4), pady=5)
+
+        self._btn_tab_combo = ctk.CTkButton(
+            tab_bar, text="🎁  Combos", width=120, height=34,
+            font=(F, 12), fg_color=COLORS["bg_input"], text_color=COLORS["text_muted"],
+            hover_color=COLORS["border"], corner_radius=8,
+            command=lambda: self._switch_tab("combos")
+        )
+        self._btn_tab_combo.grid(row=0, column=1, padx=(0, 4), pady=5)
+
+        # ── Content area ─────────────────────────────────────────────
+        self._frame_inv   = ctk.CTkFrame(self, fg_color="transparent", corner_radius=0)
+        self._frame_inv.grid(row=1, column=0, sticky="nsew")
+        self._frame_inv.grid_rowconfigure(1, weight=1)
+        self._frame_inv.grid_columnconfigure(1 if self._es_admin else 0, weight=1)
+
+        self._frame_combo = CombosPanel(self, dao=self._dao, es_admin=self._es_admin)
+        self._frame_combo.grid(row=1, column=0, sticky="nsew")
+        self._frame_combo.grid_remove()
+
+        # ── Build inventory frame contents ────────────────────────────
+        self._build_inventory_frame()
+
+    def _switch_tab(self, tab: str):
+        self._active_tab = tab
+        if tab == "inventario":
+            self._frame_combo.grid_remove()
+            self._frame_inv.grid()
+            self._btn_tab_inv.configure(fg_color=COLORS["accent"], text_color="#fff")
+            self._btn_tab_combo.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_muted"])
+        else:
+            self._frame_inv.grid_remove()
+            self._frame_combo.grid()
+            self._btn_tab_combo.configure(fg_color=COLORS["accent"], text_color="#fff")
+            self._btn_tab_inv.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_muted"])
+            self._frame_combo.refresh()
+
+    def _build_inventory_frame(self):
         # ── Barra de búsqueda ─────────────────────────────────────────
         span = 2 if self._es_admin else 1
-        self._search_bar = SearchBar(self, on_search_callback=self._on_search)
+        self._search_bar = SearchBar(self._frame_inv, on_search_callback=self._on_search)
         self._search_bar.grid(
             row=0, column=0, columnspan=span,
             padx=16, pady=(12, 4), sticky="ew",
@@ -88,7 +438,7 @@ class InventarioPage(ctk.CTkFrame):
         # ── Formulario (solo Admin) ───────────────────────────────────
         if self._es_admin:
             self._form = FormPanel(
-                self,
+                self._frame_inv,
                 dao=self._dao,
                 refresh_callback=self._load_inventory,
             )
@@ -100,7 +450,7 @@ class InventarioPage(ctk.CTkFrame):
 
         # ── Tabla de inventario ───────────────────────────────────────
         col = 1 if self._es_admin else 0
-        self._table = InventoryTable(self)
+        self._table = InventoryTable(self._frame_inv)
         self._table.grid(
             row=1, column=col,
             padx=(8 if self._es_admin else 16, 16),
@@ -134,6 +484,14 @@ class InventarioPage(ctk.CTkFrame):
             ).pack(side="left", padx=(0, 8))
 
             ctk.CTkButton(
+                btn_bar, text="📥 Abastecer",
+                width=110, height=32, font=(F, 12),
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                text_color="#ffffff", corner_radius=8,
+                command=self._on_abastecer,
+            ).pack(side="left", padx=(0, 8))
+
+            ctk.CTkButton(
                 btn_bar, text="🗑️ Eliminar",
                 width=110, height=32, font=(F, 12),
                 fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"],
@@ -142,8 +500,8 @@ class InventarioPage(ctk.CTkFrame):
             ).pack(side="left", padx=(0, 8))
 
             ctk.CTkButton(
-                btn_bar, text="📋 Agregar Similar",
-                width=140, height=32, font=(F, 12),
+                btn_bar, text="📋 Similar",
+                width=100, height=32, font=(F, 12),
                 fg_color="#1e2e1e", hover_color=COLORS["success"],
                 text_color=COLORS["success"], corner_radius=8,
                 command=self._on_agregar_similar,
@@ -190,14 +548,15 @@ class InventarioPage(ctk.CTkFrame):
             rol=self._rol,
         )
 
+    def _on_new_product(self):
+        FormModal(self.winfo_toplevel(), self._dao, self._load_inventory)
+
     def _on_edit(self):
         record_id = self._table.get_selected_id()
         if record_id is None:
-            messagebox.showwarning("Sin selección", "Selecciona un repuesto de la tabla primero.")
             return
         record = self._dao.obtener_por_id(record_id)
         if record is None:
-            messagebox.showerror("Error", "No se encontró el registro seleccionado.")
             return
         self._form.load_data(record)
         self._form.set_edit_mode(record_id)
@@ -207,43 +566,85 @@ class InventarioPage(ctk.CTkFrame):
             return
         record_id = self._table.get_selected_id()
         if record_id is None:
-            messagebox.showwarning("Sin selección", "Selecciona un repuesto de la tabla primero.")
-            return
-        if not messagebox.askyesno(
-            "Confirmar eliminación",
-            f"¿Eliminar repuesto ID {record_id}?\nEsta acción no se puede deshacer.",
-            icon="warning",
-        ):
             return
         try:
             self._dao.eliminar(record_id)
             if self._form:
                 self._form.clear()
             self._load_inventory()
-            messagebox.showinfo("Eliminado", "✅ Repuesto eliminado correctamente.")
-        except Exception as e:
-            messagebox.showerror("Error al eliminar", str(e))
+        except Exception:
+            pass
 
-    def _on_agregar_similar(self):
-        """Copia Nombre, Marca y Modelo del producto seleccionado al formulario."""
-        if not self._form:
-            return
+    def _on_abastecer(self):
         record_id = self._table.get_selected_id()
         if record_id is None:
-            messagebox.showwarning(
-                "Sin selección",
-                "Selecciona un producto de la tabla para agregar uno similar.",
-            )
+            return
+        record = self._dao.obtener_por_id(record_id)
+        if record is None:
+            return
+            
+        popup = ctk.CTkToplevel(self)
+        popup.title("Abastecer: " + record["nombre"])
+        popup.geometry("300x350")
+        popup.transient(self.winfo_toplevel())
+        popup.grab_set()
+        
+        ctk.CTkLabel(popup, text="Cantidad actual: " + str(record["cantidad"]), font=(F, 12, "bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(popup, text="Costo actual: $" + f"{record['precio_entrada']:.2f}", font=(F, 12)).pack(pady=5)
+        
+        ctk.CTkLabel(popup, text="Cantidad Entrante:", font=(F, 12)).pack(pady=(10, 0))
+        entry_qty = ctk.CTkEntry(popup, font=(F, 12), justify="center")
+        entry_qty.pack(pady=5)
+        entry_qty.insert(0, "0")
+        
+        ctk.CTkLabel(popup, text="Precio Compra (Unidad) $:", font=(F, 12)).pack(pady=(10, 0))
+        entry_cost = ctk.CTkEntry(popup, font=(F, 12), justify="center")
+        entry_cost.pack(pady=5)
+        entry_cost.insert(0, "0.00")
+        
+        def save():
+            try:
+                q = int(entry_qty.get())
+                c = float(entry_cost.get())
+                if q <= 0: return
+                old_q = record["cantidad"]
+                old_c = record["precio_entrada"]
+                old_v = record.get("precio_venta", 0.0)
+                
+                # Calcular el porcentaje de ganancia original (markup)
+                if old_c > 0:
+                    markup = old_v / old_c
+                else:
+                    markup = 1.0
+                
+                # Nuevo costo promedio ponderado
+                new_q = old_q + q
+                new_c = ((old_q * old_c) + (q * c)) / new_q
+                
+                # Nuevo precio de venta respetando el markup
+                new_v = new_c * markup
+                
+                self._dao.actualizar(record_id, cantidad=new_q, precio_entrada=new_c, precio_venta=new_v)
+                self._load_inventory()
+                popup.destroy()
+            except ValueError:
+                pass
+                
+        ctk.CTkButton(popup, text="Guardar", command=save, fg_color=COLORS["success"], hover_color=COLORS["success"]).pack(pady=20)
+
+    def _on_agregar_similar(self):
+        record_id = self._table.get_selected_id()
+        if record_id is None:
             return
         record = self._dao.obtener_por_id(record_id)
         if record is None:
             return
         self._form.load_similar(record)
-        # Dar foco al campo SKU (el único campo distinto que el usuario debe llenar)
         try:
             self._form._entries["sku"].focus()
         except Exception:
             pass
+
 
 # ===========================================================================
 # Página: Reportes y Estadísticas (embebida)
@@ -1125,7 +1526,7 @@ class DashboardApp(ctk.CTk):
 
         # ── Sidebar ───────────────────────────────────────────────────
         self._sidebar = ctk.CTkFrame(
-            self, fg_color=C_SIDEBAR, corner_radius=0, width=220,
+            self, fg_color=COLORS["sidebar"], corner_radius=0, width=220,
         )
         self._sidebar.grid(row=0, column=0, sticky="nsew")
         self._sidebar.grid_propagate(False)
@@ -1196,8 +1597,8 @@ class DashboardApp(ctk.CTk):
                 font=(F, 13),
                 height=44,
                 anchor="w",
-                fg_color=C_SIDEBAR_BTN if not is_external else "#1a2a1a",
-                hover_color=C_ACTIVE_BTN,
+                fg_color=COLORS["sidebar_btn"] if not is_external else "#1a2a1a",
+                hover_color=COLORS["sidebar_active"],
                 text_color=COLORS["text_primary"] if not is_external else COLORS["success"],
                 corner_radius=10,
                 command=lambda k=key: self._navigate(k),
@@ -1263,10 +1664,10 @@ class DashboardApp(ctk.CTk):
         # Actualizar estado visual de los botones
         for nav_key, btn in self._nav_buttons.items():
             if nav_key == key:
-                btn.configure(fg_color=C_ACTIVE_BTN, text_color=C_ACTIVE_TEXT,
+                btn.configure(fg_color=COLORS["sidebar_active"], text_color=COLORS["sidebar_active_text"],
                               font=(F, 13, "bold"))
             else:
-                btn.configure(fg_color=C_SIDEBAR_BTN, text_color=COLORS["text_primary"],
+                btn.configure(fg_color=COLORS["sidebar_btn"], text_color=COLORS["text_primary"],
                               font=(F, 13))
 
         # Ocultar página actual y mostrar la nueva

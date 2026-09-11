@@ -18,7 +18,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from database.inventario_db import UsuariosDAO  # noqa: E402
+from database.inventario_db import UsuariosDAO, EmpresasDAO  # noqa: E402
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -40,7 +40,8 @@ C = {
     "gold":         "#f5c518",
 }
 
-ROL_COLOR = {"Admin": C["accent"], "Empleado": C["success"]}
+ROL_COLOR = {"Admin": C["accent"], "Empleado": C["success"], "SuperAdmin": C["gold"]}
+
 
 
 # ===========================================================================
@@ -61,6 +62,11 @@ class LoginWindow(ctk.CTkToplevel):
         self.result: dict | None = None
         self._dao      = UsuariosDAO()
         self._intentos = 0
+        # Cargar branding de la empresa registrada (si existe)
+        try:
+            self._empresa = EmpresasDAO().obtener_primera()
+        except Exception:
+            self._empresa = None
 
         self._setup_window()
         self._build()
@@ -70,7 +76,8 @@ class LoginWindow(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _setup_window(self):
-        self.title("RepuestosDB — Iniciar Sesión")
+        nombre = self._empresa["nombre"] if self._empresa else "RepuestosDB"
+        self.title(f"{nombre} — Iniciar Sesión")
         self.resizable(False, False)
         self.configure(fg_color=C["bg"])
         self.grab_set()
@@ -108,16 +115,40 @@ class LoginWindow(ctk.CTkToplevel):
         inner = ctk.CTkFrame(left, fg_color="transparent")
         inner.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Logo
-        ctk.CTkLabel(inner, text="⚡", font=(FONT, 64),
-                     text_color=C["accent"]).pack(pady=(0, 8))
+        # Nombre e ición: dinámico si hay empresa, genérico si no
+        if self._empresa:
+            nombre_sys = self._empresa["nombre"]
+            ruta_logo  = self._empresa.get("ruta_logo", "")
+            if ruta_logo and Path(ruta_logo).exists():
+                try:
+                    from PIL import Image
+                    img = Image.open(ruta_logo).convert("RGBA")
+                    img.thumbnail((80, 80))
+                    ctk_img = ctk.CTkImage(img, size=(80, 80))
+                    lbl = ctk.CTkLabel(inner, image=ctk_img, text="")
+                    lbl.pack(pady=(0, 8))
+                    lbl._ctk_ref = ctk_img
+                except Exception:
+                    ctk.CTkLabel(inner, text="⚡", font=(FONT, 64),
+                                 text_color=C["accent"]).pack(pady=(0, 8))
+            else:
+                ctk.CTkLabel(inner, text="⚡", font=(FONT, 64),
+                             text_color=C["accent"]).pack(pady=(0, 8))
 
-        ctk.CTkLabel(inner, text="RepuestosDB",
-                     font=(FONT, 26, "bold"), text_color=C["text"]).pack()
-
-        ctk.CTkLabel(inner, text="Sistema de Gestión\nde Inventario Profesional",
-                     font=(FONT, 12), text_color=C["muted"],
-                     justify="center").pack(pady=(8, 40))
+            ctk.CTkLabel(inner, text=nombre_sys,
+                         font=(FONT, 26, "bold"), text_color=C["text"]).pack()
+            ctk.CTkLabel(inner, text="Sistema de Gestión Profesional",
+                         font=(FONT, 12), text_color=C["muted"],
+                         justify="center").pack(pady=(8, 40))
+        else:
+            # Branding genérico
+            ctk.CTkLabel(inner, text="⚡", font=(FONT, 64),
+                         text_color=C["accent"]).pack(pady=(0, 8))
+            ctk.CTkLabel(inner, text="RepuestosDB",
+                         font=(FONT, 26, "bold"), text_color=C["text"]).pack()
+            ctk.CTkLabel(inner, text="Sistema de Gestión\nde Inventario Profesional",
+                         font=(FONT, 12), text_color=C["muted"],
+                         justify="center").pack(pady=(8, 40))
 
         # Características del sistema
         features = [
@@ -134,7 +165,7 @@ class LoginWindow(ctk.CTkToplevel):
                          anchor="w").pack(padx=14, pady=8, fill="x")
 
         # Versión
-        ctk.CTkLabel(inner, text="v1.0  •  Offline First  •  SQLite",
+        ctk.CTkLabel(inner, text="v2.0  •  Offline First  •  SQLite",
                      font=(FONT, 9), text_color="#3a3f55").pack(pady=(20, 0))
 
     # ------------------------------------------------------------------
@@ -268,7 +299,7 @@ class LoginWindow(ctk.CTkToplevel):
         rol   = resultado["rol"]
         color = ROL_COLOR.get(rol, C["accent"])
         self._lbl_error.configure(
-            text=f"✓ Bienvenido, {resultado['usuario']}  [{rol}]",
+            text=f"\u2713 Bienvenido, {resultado['usuario']}  [{rol}]",
             text_color=color,
         )
         self._btn_login.configure(text="Cargando…", fg_color=color, state="disabled")

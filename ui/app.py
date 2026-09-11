@@ -39,28 +39,40 @@ _THEME_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "theme.
 
 # Paletas completas disponibles (sincronizadas con dashboard.py)
 _PALETAS = {
+    "Steel Blue": {
+        "bg_root": "#dce6ed", "bg_sidebar": "#2e4050", "bg_card": "#eef2f5",
+        "bg_input": "#c4d4de", "accent": "#4a7a95", "accent_hover": "#3a6278",
+        "danger": "#c0392b", "danger_hover": "#a93226",
+        "success": "#1a7a4a", "text_primary": "#1e2e38", "text_muted": "#4a6070",
+        "border": "#a8bfcc", "row_even": "#dce6ed", "row_odd": "#c4d4de",
+        "row_selected": "#a0bfcc",
+        "sidebar": "#2e4050", "sidebar_btn": "#3a5263", "sidebar_active": "#527585",
+        "sidebar_active_text": "#ffffff",
+    },
     "Claro Azul": {
-        "bg_root": "#f0f4ff", "bg_sidebar": "#e8edf8", "bg_card": "#ffffff",
-        "bg_input": "#e2e8f7", "accent": "#2563eb", "accent_hover": "#1d4ed8",
-        "danger": "#dc2626", "danger_hover": "#b91c1c",
-        "success": "#16a34a", "text_primary": "#1e293b", "text_muted": "#64748b",
-        "border": "#c7d2e8", "row_even": "#f0f4ff", "row_odd": "#e8edf8",
+        "bg_root": "#e3e7e9", "bg_sidebar": "#64748b", "bg_card": "#ffffff",
+        "bg_input": "#d1d5db", "accent": "#1e3a8a", "accent_hover": "#1e40af",
+        "danger": "#b91c1c", "danger_hover": "#991b1b",
+        "success": "#15803d", "text_primary": "#000000", "text_muted": "#1a1a1a",
+        "border": "#475569", "row_even": "#e3e7e9", "row_odd": "#f3f4f6",
         "row_selected": "#bfdbfe",
+        "sidebar": "#1e3a8a", "sidebar_btn": "#1e40af", "sidebar_active": "#3b82f6",
+        "sidebar_active_text": "#ffffff",
     },
     "Claro Morado": {
-        "bg_root": "#f5f0ff", "bg_sidebar": "#ede8ff", "bg_card": "#ffffff",
-        "bg_input": "#e9e0ff", "accent": "#7c3aed", "accent_hover": "#6d28d9",
-        "danger": "#dc2626", "danger_hover": "#b91c1c",
-        "success": "#16a34a", "text_primary": "#1e1b4b", "text_muted": "#6d28d9",
-        "border": "#d8b4fe", "row_even": "#f5f0ff", "row_odd": "#ede8ff",
-        "row_selected": "#ddd6fe",
+        "bg_root": "#e3e7e9", "bg_sidebar": "#a855f7", "bg_card": "#ffffff",
+        "bg_input": "#d8b4fe", "accent": "#5b21b6", "accent_hover": "#4c1d95",
+        "danger": "#b91c1c", "danger_hover": "#991b1b",
+        "success": "#15803d", "text_primary": "#000000", "text_muted": "#1a1a1a",
+        "border": "#6b21a8", "row_even": "#e3e7e9", "row_odd": "#f3f4f6",
+        "row_selected": "#e9d5ff",
     },
     "Claro Celeste": {
-        "bg_root": "#f0faff", "bg_sidebar": "#e0f4ff", "bg_card": "#ffffff",
-        "bg_input": "#d0ebff", "accent": "#0284c7", "accent_hover": "#0369a1",
-        "danger": "#dc2626", "danger_hover": "#b91c1c",
-        "success": "#16a34a", "text_primary": "#0c1a2e", "text_muted": "#0369a1",
-        "border": "#bae6fd", "row_even": "#f0faff", "row_odd": "#e0f4ff",
+        "bg_root": "#e3e7e9", "bg_sidebar": "#38bdf8", "bg_card": "#ffffff",
+        "bg_input": "#bae6fd", "accent": "#0369a1", "accent_hover": "#075985",
+        "danger": "#b91c1c", "danger_hover": "#991b1b",
+        "success": "#15803d", "text_primary": "#000000", "text_muted": "#1a1a1a",
+        "border": "#0369a1", "row_even": "#e3e7e9", "row_odd": "#f3f4f6",
         "row_selected": "#bae6fd",
     },
     "Oscuro Azul": {
@@ -105,7 +117,7 @@ _PALETAS = {
     },
 }
 
-_DEFAULT_TEMA = "Claro Azul"
+_DEFAULT_TEMA = "Oscuro Azul"
 
 def _leer_nombre_tema() -> str:
     try:
@@ -132,11 +144,16 @@ def _construir_colors(nombre_tema: str) -> dict:
         "row_even":     paleta["row_even"],
         "row_odd":      paleta["row_odd"],
         "row_selected": paleta["row_selected"],
+        "sidebar":      paleta.get("sidebar", paleta["bg_root"]),
+        "sidebar_btn":  paleta.get("sidebar_btn", paleta["bg_input"]),
+        "sidebar_active": paleta.get("sidebar_active", paleta["accent"]),
+        "sidebar_active_text": paleta.get("sidebar_active_text", "#ffffff"),
     }
 
-# Aplicar modo claro u oscuro según el tema seleccionado
+# Steel Blue is a hybrid theme (dark sidebar, light content) — use Light mode
 _TEMA_ACTUAL = _leer_nombre_tema()
-_ES_CLARO    = _TEMA_ACTUAL.startswith("Claro")
+_TEMAS_CLAROS = {"Claro Azul", "Claro Morado", "Claro Celeste", "Steel Blue"}
+_ES_CLARO    = _TEMA_ACTUAL in _TEMAS_CLAROS
 ctk.set_appearance_mode("Light" if _ES_CLARO else "Dark")
 ctk.set_default_color_theme("blue")
 
@@ -202,14 +219,8 @@ class SearchBar(ctk.CTkFrame):
 class FormPanel(ctk.CTkFrame):
     """
     Panel izquierdo con el formulario de alta/edición de repuestos.
-    Expone:
-      - get_data()         → dict con los valores actuales del formulario
-      - load_data(record)  → carga un dict en los campos (modo edición)
-      - clear()            → limpia todos los campos
-      - set_edit_mode(id)  → activa botones de edición con el ID cargado
     """
 
-    # Campos del formulario en orden de aparición
     FIELDS = [
         ("nombre",         "Nombre *",                       "Ej: Resistencia calefactora"),
         ("modelo",         "Modelo",                         "(N/A)"),
@@ -222,150 +233,138 @@ class FormPanel(ctk.CTkFrame):
         ("ubicacion",      "Ubicación",                       "Ej: Estante A-1"),
     ]
 
-    # Valores por defecto al abrir formulario nuevo
     _DEFAULTS = {
         "modelo": "(N/A)",
         "marca":  "(N/A)",
     }
 
-    # Campos que DEBEN estar llenos y válidos para habilitar el botón
     _REQUIRED_NUMERIC = {"precio_entrada", "precio_venta", "cantidad", "stock_minimo"}
     _REQUIRED_TEXT    = {"nombre", "sku"}
 
-    def __init__(self, parent, dao: InventarioDAO, refresh_callback, **kwargs):
-        super().__init__(
-            parent,
-            fg_color=COLORS["bg_sidebar"],
-            corner_radius=0,
-            **kwargs,
-        )
+    def __init__(self, parent, dao, refresh_callback, **kwargs):
+        super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=10, **kwargs)
+        
         self._dao = dao
-        self._refresh  = refresh_callback
-        self._edit_id: int | None = None
-        self._entries: dict[str, ctk.CTkEntry] = {}
-        self._vars:    dict[str, ctk.StringVar] = {}
-        self._desc_box: ctk.CTkTextbox | None = None
+        from database.inventario_db import AreasDAO
+        self._areas_dao = AreasDAO()
+        self._refresh = refresh_callback
+        self._edit_id = None
+        
+        self._entries = {}
+        self._vars = {}
+        self._desc_box = None
         self._img_ruta = ""
-        self._tasa = self._cargar_tasa_local()
-        self._ignore_trace = False
+        import json
+        self._tasa = 1.0
+        
         self._build()
-
-    def _cargar_tasa_local(self):
-        tasa_file = Path(__file__).resolve().parent.parent / "config" / "tasa.json"
-        try:
-            if tasa_file.exists():
-                return float(json.loads(tasa_file.read_text(encoding="utf-8")).get("tasa", 1.0))
-        except Exception:
-            pass
-        return 1.0
-
+        self._load_areas()
         self._apply_defaults()
+        self._set_btn_disabled()
 
-    # ------------------------------------------------------------------
-    # Construcción de la UI
-    # ------------------------------------------------------------------
+    def _focus_next(self, event):
+        event.widget.tk_focusNext().focus()
+        return "break"
 
     def _build(self):
-        self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=0)
+        self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # ── Encabezado ────────────────────────────────────────────────
-        header = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10)
-        header.grid(row=0, column=0, padx=14, pady=(14, 0), sticky="ew")
+        main_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_card"], corner_radius=10)
+        main_frame.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
+        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
 
+        # Header
         ctk.CTkLabel(
-            header,
-            text="➕  Nuevo Repuesto",
-            font=(FONT_FAMILY, 15, "bold"),
+            main_frame,
+            text="✏️ Editar Repuesto" if self._edit_id else "➕ Nuevo Repuesto",
+            font=(FONT_FAMILY, 18, "bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=14, pady=10, anchor="w")
+        ).grid(row=0, column=0, padx=16, pady=16, sticky="w")
 
-        # ── Área de scroll con campos ──────────────────────────────────
+        # Scroll
         scroll = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
+            main_frame, fg_color="transparent",
             scrollbar_button_color=COLORS["border"],
             scrollbar_button_hover_color=COLORS["accent"],
         )
-        scroll.grid(row=1, column=0, padx=14, pady=8, sticky="nsew")
+        scroll.grid(row=1, column=0, padx=16, pady=(0,16), sticky="nsew")
         scroll.grid_columnconfigure(0, weight=1)
 
-        for i, (key, label, placeholder) in enumerate(self.FIELDS):
-            self._add_labeled_entry(scroll, i, key, label, placeholder)
-
-        # Campo Descripción (multilinea)
-        row_desc = len(self.FIELDS) * 2
+        # Area combobox
+        row_idx = 0
         ctk.CTkLabel(
-            scroll,
-            text="Descripción",
-            font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_muted"],
-            anchor="w",
-        ).grid(row=row_desc, column=0, padx=4, pady=(10, 2), sticky="w")
-
-        self._desc_box = ctk.CTkTextbox(
-            scroll,
-            height=80,
-            font=(FONT_FAMILY, 12),
-            fg_color=COLORS["bg_input"],
-            border_color=COLORS["border"],
-            border_width=1,
-            text_color=COLORS["text_primary"],
-            corner_radius=8,
+            scroll, text="Área (Rubro)", font=(FONT_FAMILY, 12), text_color=COLORS["text_primary"], anchor="w"
+        ).grid(row=row_idx, column=0, padx=4, pady=(10, 2), sticky="w")
+        
+        self._area_var = ctk.StringVar()
+        self._area_cb = ctk.CTkComboBox(
+            scroll, variable=self._area_var, values=[],
+            font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"], text_color=COLORS["text_primary"],
+            height=36, corner_radius=8
         )
-        self._desc_box.grid(row=row_desc + 1, column=0, padx=4, pady=(0, 6), sticky="ew")
+        self._area_cb.grid(row=row_idx+1, column=0, padx=4, pady=(0, 2), sticky="ew")
+        row_idx += 2
 
-        # ── Imagen ──────────────────────────────────────────────
+        # Fields
+        for i, (key, label, placeholder) in enumerate(self.FIELDS):
+            if key == "precio_venta":
+                self._add_precio_venta_widget(scroll, row_idx)
+            else:
+                self._add_labeled_entry(scroll, row_idx, key, label, placeholder)
+            row_idx += 2
+
+        self._vars["precio_entrada"].trace_add("write", lambda *_: self._recalcular_precio_venta())
+
+        # Desc
+        ctk.CTkLabel(
+            scroll, text="Descripción", font=(FONT_FAMILY, 12), text_color=COLORS["text_primary"], anchor="w"
+        ).grid(row=row_idx, column=0, padx=4, pady=(10, 2), sticky="w")
+        self._desc_box = ctk.CTkTextbox(
+            scroll, height=80, font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"], border_width=1, text_color=COLORS["text_primary"], corner_radius=8
+        )
+        self._desc_box.grid(row=row_idx+1, column=0, padx=4, pady=(0, 6), sticky="ew")
+        row_idx += 2
+
+        # Image
         img_f = ctk.CTkFrame(scroll, fg_color="transparent")
-        img_f.grid(row=row_desc + 2, column=0, padx=4, pady=10, sticky="ew")
-        self._lbl_img = ctk.CTkLabel(img_f, text="Sin imagen", text_color=COLORS["text_muted"])
+        img_f.grid(row=row_idx, column=0, padx=4, pady=10, sticky="ew")
+        self._lbl_img = ctk.CTkLabel(img_f, text="Sin imagen", text_color=COLORS["text_primary"])
         self._lbl_img.pack(side="left", padx=10)
         ctk.CTkButton(img_f, text="🖼️ Cargar Imagen", width=120, height=28,
                       fg_color=COLORS["bg_input"], hover_color=COLORS["accent"],
                       command=self._cargar_imagen).pack(side="right", padx=10)
 
-        # ── Botones de acción ──────────────────────────────────────────
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="ew")
+        # Buttons
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.grid(row=2, column=0, padx=16, pady=16, sticky="ew")
         btn_frame.grid_columnconfigure((0, 1), weight=1)
 
         self._btn_save = ctk.CTkButton(
-            btn_frame,
-            text="💾  Guardar",
-            font=(FONT_FAMILY, 13, "bold"),
-            fg_color=COLORS["bg_input"],        # gris por defecto = deshabilitado visualmente
-            hover_color=COLORS["bg_input"],
-            text_color=COLORS["text_muted"],
-            height=40,
-            corner_radius=10,
-            state="disabled",                   # <─ deshabilitado al inicio
-            command=self._on_save,
+            btn_frame, text="💾  Guardar", font=(FONT_FAMILY, 13, "bold"),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["bg_input"], text_color=COLORS["text_muted"],
+            height=40, corner_radius=10, state="disabled", command=self._on_save
         )
         self._btn_save.grid(row=0, column=0, padx=(0, 5), sticky="ew")
 
-        self._btn_cancel = ctk.CTkButton(
-            btn_frame,
-            text="✖  Cancelar",
-            font=(FONT_FAMILY, 13),
-            fg_color=COLORS["bg_card"],
-            hover_color=COLORS["border"],
-            text_color=COLORS["text_muted"],
-            height=40,
-            corner_radius=10,
-            command=self.clear,
-        )
-        self._btn_cancel.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        ctk.CTkButton(
+            btn_frame, text="✖  Cancelar", font=(FONT_FAMILY, 13),
+            fg_color=COLORS["bg_root"], hover_color=COLORS["border"], text_color=COLORS["text_primary"],
+            height=40, corner_radius=10, command=self.clear
+        ).grid(row=0, column=1, padx=(5, 0), sticky="ew")
+
+    def _load_areas(self):
+        areas = self._areas_dao.listar()
+        self._areas_map = {a['nombre']: a['id'] for a in areas}
+        self._area_cb.configure(values=[""] + list(self._areas_map.keys()))
 
     def _add_labeled_entry(self, parent, row, key, label, placeholder):
         ctk.CTkLabel(
-            parent,
-            text=label,
-            font=(FONT_FAMILY, 12),
-            text_color=COLORS["text_muted"],
-            anchor="w",
-        ).grid(row=row * 2, column=0, padx=4, pady=(10, 2), sticky="w")
+            parent, text=label, font=(FONT_FAMILY, 12), text_color=COLORS["text_primary"], anchor="w"
+        ).grid(row=row, column=0, padx=4, pady=(10, 2), sticky="w")
 
         var = ctk.StringVar()
         var.trace_add("write", lambda *_: self._validate())
@@ -377,196 +376,171 @@ class FormPanel(ctk.CTkFrame):
             border_color=COLORS["border"], text_color=COLORS["text_primary"],
             height=36, corner_radius=8
         )
-        entry.grid(row=row * 2 + 1, column=0, padx=4, pady=(0, 2), sticky="ew")
+        entry.grid(row=row+1, column=0, padx=4, pady=(0, 2), sticky="ew")
+        entry.bind("<Return>", self._focus_next)
+        
+        def _on_focus_in(event):
+            if entry.get() in ("(N/A)", "N/A"):
+                entry.delete(0, "end")
+        entry.bind("<FocusIn>", _on_focus_in)
         self._entries[key] = entry
 
-    # ------------------------------------------------------------------
-    # Validación en tiempo real
-    # ------------------------------------------------------------------
+    def _add_precio_venta_widget(self, parent, row):
+        ctk.CTkLabel(
+            parent, text="Precio Venta *", font=(FONT_FAMILY, 12), text_color=COLORS["text_primary"], anchor="w"
+        ).grid(row=row, column=0, padx=4, pady=(10, 2), sticky="w")
 
+        container = ctk.CTkFrame(parent, fg_color="transparent")
+        container.grid(row=row+1, column=0, padx=4, pady=(0, 2), sticky="ew")
+        container.grid_columnconfigure(0, weight=1)
 
+        self._pv_mode = ctk.StringVar(value="fijo")
+        toggle_frame = ctk.CTkFrame(container, fg_color="transparent")
+        toggle_frame.grid(row=0, column=0, sticky="ew", pady=(0, 2))
+
+        def _set_mode(mode):
+            self._pv_mode.set(mode)
+            if mode == "fijo":
+                btn_fijo.configure(fg_color=COLORS["accent"], text_color="#fff")
+                btn_pct.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"])
+                pct_frame.grid_remove()
+                entry_fijo.grid()
+            else:
+                btn_pct.configure(fg_color=COLORS["accent"], text_color="#fff")
+                btn_fijo.configure(fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"])
+                entry_fijo.grid_remove()
+                pct_frame.grid()
+                self._recalcular_precio_venta()
+
+        btn_fijo = ctk.CTkButton(
+            toggle_frame, text="$ Precio fijo", height=26, font=(FONT_FAMILY, 11),
+            fg_color=COLORS["accent"], text_color="#fff", hover_color=COLORS["accent_hover"],
+            corner_radius=6, width=110, command=lambda: _set_mode("fijo")
+        )
+        btn_fijo.pack(side="left", padx=(0, 4))
+        btn_pct = ctk.CTkButton(
+            toggle_frame, text="% del costo", height=26, font=(FONT_FAMILY, 11),
+            fg_color=COLORS["bg_input"], text_color=COLORS["text_primary"], hover_color=COLORS["accent_hover"],
+            corner_radius=6, width=110, command=lambda: _set_mode("porcentaje")
+        )
+        btn_pct.pack(side="left")
+
+        var = ctk.StringVar()
+        var.trace_add("write", lambda *_: self._validate())
+        self._vars["precio_venta"] = var
+
+        entry_fijo = ctk.CTkEntry(
+            container, textvariable=var, placeholder_text="0.00",
+            font=(FONT_FAMILY, 12), fg_color=COLORS["bg_input"], border_color=COLORS["border"],
+            text_color=COLORS["text_primary"], height=36, corner_radius=8
+        )
+        entry_fijo.grid(row=1, column=0, sticky="ew")
+        entry_fijo.bind("<Return>", self._focus_next)
+        self._entries["precio_venta"] = entry_fijo
+
+        pct_frame = ctk.CTkFrame(container, fg_color="transparent")
+        pct_frame.grid(row=1, column=0, sticky="ew")
+        pct_frame.grid_remove()
+        pct_frame.grid_columnconfigure(0, weight=1)
+
+        pct_row = ctk.CTkFrame(pct_frame, fg_color="transparent")
+        pct_row.grid(row=0, column=0, sticky="ew")
+        pct_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(pct_row, text="Ganancia:", font=(FONT_FAMILY, 11), text_color=COLORS["text_primary"]).grid(row=0, column=0, padx=(0, 6))
+        self._pct_var = ctk.StringVar(value="150")
+        self._pct_var.trace_add("write", lambda *_: self._recalcular_precio_venta())
+        pct_entry = ctk.CTkEntry(
+            pct_row, textvariable=self._pct_var, width=70, height=36, font=(FONT_FAMILY, 13, "bold"),
+            fg_color=COLORS["bg_input"], border_color=COLORS["accent"], text_color=COLORS["accent"],
+            corner_radius=8, justify="center"
+        )
+        pct_entry.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        pct_entry.bind("<Return>", self._focus_next)
+        ctk.CTkLabel(pct_row, text="%", font=(FONT_FAMILY, 13, "bold"), text_color=COLORS["accent"]).grid(row=0, column=2)
+        
+        self._lbl_precio_calculado = ctk.CTkLabel(pct_frame, text="= $0.00 USD", font=(FONT_FAMILY, 11, "bold"), text_color=COLORS["success"])
+        self._lbl_precio_calculado.grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+    def _recalcular_precio_venta(self):
+        if not hasattr(self, '_pv_mode') or self._pv_mode.get() != "porcentaje":
+            return
+        try:
+            pe = float(self._vars["precio_entrada"].get().strip() or "0")
+            pct = float(self._pct_var.get().strip() or "0")
+            precio_calculado = pe * pct / 100
+            self._vars["precio_venta"].set(f"{precio_calculado:.2f}")
+            self._lbl_precio_calculado.configure(text=f"= ${precio_calculado:.2f} USD", text_color=COLORS["success"])
+        except ValueError:
+            self._lbl_precio_calculado.configure(text="= $?.?? USD", text_color=COLORS["text_primary"])
 
     def _cargar_imagen(self):
-        ruta = filedialog.askopenfilename(
-            title="Seleccionar Imagen del Producto",
-            filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")]
-        )
+        from tkinter import filedialog
+        ruta = filedialog.askopenfilename(title="Seleccionar Imagen", filetypes=[("Imágenes", "*.png;*.jpg;*.jpeg")])
         if ruta:
             self._img_ruta = ruta
+            from pathlib import Path
             self._lbl_img.configure(text=Path(ruta).name)
 
     def _validate(self):
-        """
-        Revisa los campos obligatorios cada vez que el usuario escribe.
-        Si todo es válido habilita el botón (azul); si no, lo deshabilita (gris).
-        Sin ventanas emergentes de error.
-        """
         vals = {k: v.get().strip() for k, v in self._vars.items()}
-
-        # Campos de texto requeridos
         for key in self._REQUIRED_TEXT:
             if not vals.get(key, ""):
-                self._set_btn_disabled()
-                return
-
-        # Campos numéricos requeridos
+                self._set_btn_disabled(); return
         for key in self._REQUIRED_NUMERIC:
             raw = vals.get(key, "")
             if not raw:
-                self._set_btn_disabled()
-                return
+                self._set_btn_disabled(); return
             try:
                 val = float(raw)
-                if key == "cantidad" and int(val) != val:
-                    self._set_btn_disabled()
-                    return
-                if val < 0:
-                    self._set_btn_disabled()
-                    return
+                if key == "cantidad" and int(val) != val: self._set_btn_disabled(); return
+                if val < 0: self._set_btn_disabled(); return
             except ValueError:
-                self._set_btn_disabled()
-                return
-
-        # Todo OK → habilitar botón en azul celeste
-        self._btn_save.configure(
-            state="normal",
-            fg_color="#38bdf8",        # azul celeste brillante
-            hover_color="#0ea5e9",
-            text_color="#0a1628",
-        )
+                self._set_btn_disabled(); return
+        
+        self._btn_save.configure(state="normal", fg_color="#38bdf8", hover_color="#0ea5e9", text_color="#0a1628")
 
     def _set_btn_disabled(self):
-        self._btn_save.configure(
-            state="disabled",
-            fg_color=COLORS["bg_input"],
-            hover_color=COLORS["bg_input"],
-            text_color=COLORS["text_muted"],
-        )
+        self._btn_save.configure(state="disabled", fg_color=COLORS["bg_input"], hover_color=COLORS["bg_input"], text_color=COLORS["text_muted"])
 
     def _apply_defaults(self):
-        """Establece los valores por defecto para Marca y Modelo."""
         for key, default_val in self._DEFAULTS.items():
             if key in self._entries:
                 self._entries[key].delete(0, "end")
                 self._entries[key].insert(0, default_val)
 
-    # ------------------------------------------------------------------
-    # Lógica de negocio del formulario
-    # ------------------------------------------------------------------
-
     def _on_save(self):
-        """Valida y guarda (CREATE o UPDATE)."""
         data = self.get_data()
-        if data is None:
-            return  # la validación ya mostró el error
+        if data is None: return
+        
+        # Handle Area
+        area_nombre = self._area_var.get().strip()
+        if area_nombre:
+            if area_nombre in self._areas_map:
+                data["area_id"] = self._areas_map[area_nombre]
+            else:
+                data["area_id"] = self._areas_dao.crear(area_nombre)
+        else:
+            data["area_id"] = None
 
+        import tkinter.messagebox as messagebox
         try:
             if self._edit_id is None:
                 self._dao.crear(**data)
-                messagebox.showinfo("Éxito", "✅ Repuesto agregado correctamente.")
             else:
                 self._dao.actualizar(self._edit_id, **data)
-                messagebox.showinfo("Éxito", "✅ Repuesto actualizado correctamente.")
-        except ValueError as e:
-            messagebox.showerror("Error de validación", str(e))
-            return
         except Exception as e:
-            messagebox.showerror("Error inesperado", str(e))
+            messagebox.showerror("Error", str(e))
             return
 
-        self.clear()
         self._refresh()
-
-    def get_data(self) -> dict | None:
-        """
-        Lee y valida los campos del formulario.
-        Devuelve un dict listo para pasar al DAO, o None si hay error.
-        Sin ventanas emergentes — la validación visual ya lo gestionó.
-        """
-        values = {key: entry.get().strip() for key, entry in self._entries.items()}
-        values["descripcion"] = self._desc_box.get("1.0", "end").strip()
-        
-        # Copiar imagen si existe y es nueva (ruta absoluta)
-        if hasattr(self, "_img_ruta") and self._img_ruta and Path(self._img_ruta).is_absolute():
-            import uuid
-            img_dir = Path(__file__).resolve().parent.parent / "inventario_img"
-            img_dir.mkdir(exist_ok=True)
-            ext = Path(self._img_ruta).suffix
-            new_name = f"img_{uuid.uuid4().hex[:8]}{ext}"
-            dest = img_dir / new_name
-            try:
-                shutil.copy2(self._img_ruta, dest)
-                values["imagen_ruta"] = f"inventario_img/{new_name}"
-            except Exception as e:
-                print(f"Error copiando imagen: {e}")
-                values["imagen_ruta"] = self._img_ruta # fallback
-        elif hasattr(self, "_img_ruta") and self._img_ruta:
-            values["imagen_ruta"] = self._img_ruta # ya era relativa
-
-        # Asegurarse de que campos requeridos estén llenos
-        for campo in list(self._REQUIRED_TEXT) + list(self._REQUIRED_NUMERIC):
-            if not values.get(campo, ""):
-                return None
-
-        # Parsear numéricos (ya validados, pero segúros)
-        try:
-            values["precio_entrada"] = float(values["precio_entrada"])
-            values["precio_venta"]   = float(values["precio_venta"])
-            values["cantidad"]       = int(float(values["cantidad"]))
-            values["stock_minimo"]   = max(0, int(float(values.get("stock_minimo", 5))))
-        except ValueError:
-            return None
-
-        if values["precio_entrada"] < 0 or values["precio_venta"] < 0 or values["cantidad"] < 0:
-            return None
-
-        return values
-
-    def load_data(self, record: dict):
-        """Rellena el formulario con los datos de un registro para editar."""
-        mapping = {
-            "nombre":         record.get("nombre", ""),
-            "modelo":         record.get("modelo", "") or "(N/A)",
-            "marca":          record.get("marca",  "") or "(N/A)",
-            "precio_entrada": str(record.get("precio_entrada", "")),
-            "precio_venta":   str(record.get("precio_venta", "")),
-            "cantidad":       str(record.get("cantidad", "")),
-            "stock_minimo":   str(record.get("stock_minimo", 5)),
-            "sku":            record.get("sku", ""),
-            "ubicacion":      record.get("ubicacion", "") or "",
-        }
-        self._img_ruta = record.get("imagen_ruta", "")
-        if self._img_ruta:
-            self._lbl_img.configure(text=Path(self._img_ruta).name)
-        else:
-            self._lbl_img.configure(text="Sin imagen")
-        for key, val in mapping.items():
-            entry = self._entries[key]
-            entry.delete(0, "end")
-            entry.insert(0, val)
-
-        self._desc_box.delete("1.0", "end")
-        self._desc_box.insert("1.0", record.get("descripcion", "") or "")
-        self._validate()  # recalcular estado del botón
-
-    def load_similar(self, record: dict):
-        """
-        Carga Nombre, Marca y Modelo de un producto existente para crear
-        uno similar. Limpia los demás campos numéricos.
-        """
-        self.clear()   # resetea todo a defaults
-        for key in ("nombre", "marca", "modelo"):
-            val = record.get(key, "") or self._DEFAULTS.get(key, "")
-            self._entries[key].delete(0, "end")
-            self._entries[key].insert(0, val)
-        self._validate()
+        self._load_areas()
+        self.clear()
 
     def set_edit_mode(self, record_id: int):
         self._edit_id = record_id
         self._btn_save.configure(text="✏️  Actualizar")
-
+        
     def clear(self):
-        """Limpia todos los campos y vuelve al modo creación con valores por defecto."""
         for entry in self._entries.values():
             entry.delete(0, "end")
         self._desc_box.delete("1.0", "end")
@@ -574,14 +548,82 @@ class FormPanel(ctk.CTkFrame):
         self._img_ruta = ""
         if hasattr(self, "_lbl_img"):
             self._lbl_img.configure(text="Sin imagen")
-        self._tasa = self._cargar_tasa_local() # refrescar por si acaso
-
         self._btn_save.configure(text="💾  Guardar")
-        self._apply_defaults()   # restaurar (N/A) en marca y modelo
-        self._set_btn_disabled()  # volver a estado gris
+        self._area_var.set("")
+        self._apply_defaults()
+        self._set_btn_disabled()
+
+    def load_similar(self, record: dict):
+        self.clear()
+        for key in ("nombre", "marca", "modelo"):
+            val = record.get(key, "") or self._DEFAULTS.get(key, "")
+            if key in self._entries:
+                self._entries[key].delete(0, "end")
+                self._entries[key].insert(0, val)
+        self._validate()
+
+    def get_data(self):
+        values = {key: entry.get().strip() for key, entry in self._entries.items()}
+        values["descripcion"] = self._desc_box.get("1.0", "end").strip()
+        if values.get("nombre"): values["nombre"] = values["nombre"][0].upper() + values["nombre"][1:]
+        if values.get("sku"): values["sku"] = values["sku"].upper()
+        
+        if self._img_ruta:
+            from pathlib import Path
+            import shutil, uuid
+            if Path(self._img_ruta).is_absolute():
+                img_dir = Path(__file__).resolve().parent.parent / "inventario_img"
+                img_dir.mkdir(exist_ok=True)
+                ext = Path(self._img_ruta).suffix
+                new_name = f"img_{uuid.uuid4().hex[:8]}{ext}"
+                dest = img_dir / new_name
+                try:
+                    shutil.copy2(self._img_ruta, dest)
+                    values["imagen_ruta"] = f"inventario_img/{new_name}"
+                except:
+                    values["imagen_ruta"] = self._img_ruta
+            else:
+                values["imagen_ruta"] = self._img_ruta
+
+        try:
+            values["precio_entrada"] = float(values["precio_entrada"])
+            values["precio_venta"]   = float(values["precio_venta"])
+            values["cantidad"]       = int(float(values["cantidad"]))
+            values["stock_minimo"]   = max(0, int(float(values.get("stock_minimo", 5))))
+        except ValueError:
+            return None
+        return values
+
+    def load_data(self, record):
+        from pathlib import Path
+        mapping = {
+            "nombre": record.get("nombre", ""),
+            "modelo": record.get("modelo", "") or "(N/A)",
+            "marca": record.get("marca", "") or "(N/A)",
+            "precio_entrada": str(record.get("precio_entrada", "")),
+            "precio_venta": str(record.get("precio_venta", "")),
+            "cantidad": str(record.get("cantidad", "")),
+            "stock_minimo": str(record.get("stock_minimo", 5)),
+            "sku": record.get("sku", ""),
+            "ubicacion": record.get("ubicacion", "") or "",
+        }
+        self._img_ruta = record.get("imagen_ruta", "")
+        self._lbl_img.configure(text=Path(self._img_ruta).name if self._img_ruta else "Sin imagen")
+        
+        for key, val in mapping.items():
+            self._entries[key].delete(0, "end")
+            self._entries[key].insert(0, val)
+            
+        self._desc_box.delete("1.0", "end")
+        self._desc_box.insert("1.0", record.get("descripcion", "") or "")
+        
+        area_nombre = record.get("area_nombre")
+        if area_nombre:
+            self._area_var.set(area_nombre)
+            
+        self._validate()
 
 
-# ===========================================================================
 # Componente: Panel Derecho — Tabla de Inventario
 # ===========================================================================
 
@@ -698,7 +740,7 @@ class InventoryTable(ctk.CTkFrame):
 
         # Tags para filas alternas
         self._tree.tag_configure("even", background=COLORS["row_even"])
-        self._tree.tag_configure("odd",  background="#212438")
+        self._tree.tag_configure("odd",  background=COLORS["row_odd"])
         self._tree.tag_configure("out_of_stock", foreground="#e05c5c")
 
     # ------------------------------------------------------------------
@@ -1253,12 +1295,9 @@ class InventarioApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=0)  # título / top bar
         self.grid_rowconfigure(1, weight=0)  # search bar
         self.grid_rowconfigure(2, weight=1)  # contenido principal
-        self.grid_columnconfigure(1, weight=1)  # tabla siempre expande
 
-        if self._es_admin:
-            self.grid_columnconfigure(0, weight=0)  # sidebar (Admin)
-        else:
-            self.grid_columnconfigure(0, weight=0, minsize=0)  # sin sidebar
+
+        self.grid_columnconfigure(0, weight=1)  # tabla siempre expande
 
         # ── Top bar ────────────────────────────────────────────────
         self._build_top_bar()
@@ -1273,23 +1312,11 @@ class InventarioApp(ctk.CTk):
             padx=16, pady=(0, 12), sticky="ew",
         )
 
-        # ── Form panel (izquierda) ─────────────────────────────────────
-        self._form = FormPanel(
-            self,
-            dao=self._dao,
-            refresh_callback=self._load_inventory,
-        )
-        self._form.grid(
-            row=2, column=0,
-            padx=(16, 8), pady=(0, 16), sticky="nsew",
-        )
-        self._form.configure(width=280)
-
-        # ── Inventory table (derecha) ──────────────────────────────────
+        # ── Inventory table ──────────────────────────────────
         self._table = InventoryTable(self)
         self._table.grid(
-            row=2, column=1,
-            padx=(0, 16), pady=(0, 16), sticky="nsew",
+            row=2, column=0,
+            padx=16, pady=(0, 16), sticky="nsew",
         )
         self._table.bind_select(self._on_row_selected)
         self._table.bind_double_click(self._on_row_double_clicked)
@@ -1380,6 +1407,20 @@ class InventarioApp(ctk.CTk):
         ).pack(side="left", padx=(0, 8))
 
         if self._es_admin:
+            # Nuevo Producto
+            ctk.CTkButton(
+                btn_bar,
+                text="➕ Nuevo Producto",
+                width=130,
+                height=32,
+                font=(FONT_FAMILY, 12, "bold"),
+                fg_color="#38bdf8",
+                hover_color="#0ea5e9",
+                text_color="#0a1628",
+                corner_radius=8,
+                command=self._on_new_product,
+            ).pack(side="left", padx=(0, 8))
+
             # Editar — solo Admin
             ctk.CTkButton(
                 btn_bar,
@@ -1465,20 +1506,20 @@ class InventarioApp(ctk.CTk):
             rol=self._rol,
         )
 
+    def _on_new_product(self):
+        FormModal(self, self._dao, self._load_inventory)
+
     def _on_edit(self):
-        """Carga el registro seleccionado en el formulario para edición."""
+        """Abre el formulario modal en modo edición."""
         record_id = self._table.get_selected_id()
         if record_id is None:
-            messagebox.showwarning("Sin selección", "Selecciona un repuesto de la tabla primero.")
             return
 
         record = self._dao.obtener_por_id(record_id)
         if record is None:
-            messagebox.showerror("Error", "No se encontró el registro seleccionado.")
             return
 
-        self._form.load_data(record)
-        self._form.set_edit_mode(record_id)
+        FormModal(self, self._dao, self._load_inventory, record)
 
     def _on_delete(self):
         """Elimina el registro seleccionado previa confirmación. Solo Admin."""
@@ -1486,24 +1527,15 @@ class InventarioApp(ctk.CTk):
             return
         record_id = self._table.get_selected_id()
         if record_id is None:
-            messagebox.showwarning("Sin selección", "Selecciona un repuesto de la tabla primero.")
+            
             return
 
-        confirm = messagebox.askyesno(
-            "Confirmar eliminación",
-            f"¿Está seguro de eliminar el repuesto ID {record_id}?\n"
-            "Esta acción no se puede deshacer.",
-            icon="warning",
-        )
-        if not confirm:
-            return
+        
 
         try:
             self._dao.eliminar(record_id)
-            if self._form:
-                self._form.clear()
             self._load_inventory()
-            messagebox.showinfo("Eliminado", "✅ Repuesto eliminado correctamente.")
+            
         except Exception as e:
             messagebox.showerror("Error al eliminar", str(e))
 

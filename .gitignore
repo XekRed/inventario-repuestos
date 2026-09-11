@@ -60,3 +60,6 @@ $RECYCLE.BIN/
 # --- Config local (si tiene credenciales) ---------------------
 config/config_local.ini
 config/*.secret
+/scratch/
+/facturas/
+

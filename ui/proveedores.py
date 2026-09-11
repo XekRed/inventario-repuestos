@@ -15,14 +15,30 @@ PEDIDOS_DIR = BASE_DIR / "pedidos_img"
 LOGOS_DIR.mkdir(exist_ok=True)
 PEDIDOS_DIR.mkdir(exist_ok=True)
 
-COLORS = {
-    "bg":        "#0d0f1a", "card":      "#13172a", "input":     "#1a1e30",
-    "border":    "#2a2e45", "accent":    "#4f8ef7", "accent_h":  "#3a70d4",
-    "success":   "#2ecc71", "success_h": "#27ae60", "gold":      "#f0a500",
-    "danger":    "#e05c5c", "text":      "#e8eaf6", "muted":     "#6b7099",
-    "row_even":  "#13172a", "row_odd":   "#181c2e", "row_sel":   "#2a3a6a",
-}
-FONT = "Inter"
+from ui.app import COLORS as _APP_COLORS, FONT_FAMILY as _FF  # noqa: E402
+
+def _build_prov_colors():
+    C = _APP_COLORS
+    return {
+        "bg":       C["bg_root"],
+        "card":     C["bg_card"],
+        "input":    C["bg_input"],
+        "border":   C["border"],
+        "accent":   C["accent"],
+        "accent_h": C["accent_hover"],
+        "success":  C["success"],
+        "success_h": C["success"],
+        "gold":     C["accent"],
+        "danger":   C["danger"],
+        "text":     C["text_primary"],
+        "muted":    C["text_muted"],
+        "row_even": C["row_even"],
+        "row_odd":  C["row_odd"],
+        "row_sel":  C["row_selected"],
+    }
+
+COLORS = _build_prov_colors()
+FONT = _FF
 
 
 # ---------------------------------------------------------------------------
@@ -30,18 +46,18 @@ FONT = "Inter"
 # ---------------------------------------------------------------------------
 
 class ProveedoresDAO:
-    def crear(self, nombre, ruta_logo=""):
+    def crear(self, nombre, telefono="", representante="", ruta_logo=""):
         with get_connection() as conn:
             cur = conn.execute(
-                "INSERT INTO proveedores (nombre, ruta_logo) VALUES (?, ?)",
-                (nombre.strip(), ruta_logo))
+                "INSERT INTO proveedores (nombre, telefono, representante, ruta_logo) VALUES (?, ?, ?, ?)",
+                (nombre.strip(), telefono.strip(), representante.strip(), ruta_logo))
             conn.commit()
             return cur.lastrowid
 
     def listar(self):
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, nombre, ruta_logo FROM proveedores ORDER BY nombre"
+                "SELECT id, nombre, telefono, representante, ruta_logo FROM proveedores ORDER BY nombre"
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -61,10 +77,10 @@ class PedidosDAO:
             pid = cur.lastrowid
             for it in items:
                 conn.execute(
-                    "INSERT INTO pedido_items (pedido_id, codigo, nombre, tipo, cantidad, unidad)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO pedido_items (pedido_id, codigo, nombre, tipo, cantidad, unidad, precio)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (pid, it.get("codigo",""), it["nombre"],
-                     it.get("tipo",""), it["cantidad"], it.get("unidad","Unidad")))
+                     it.get("tipo",""), it["cantidad"], it.get("unidad","Unidad"), it.get("precio", 0.0)))
             conn.commit()
             return pid
 
@@ -80,7 +96,7 @@ class PedidosDAO:
     def listar_items(self, pedido_id):
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT codigo, nombre, tipo, cantidad, unidad"
+                "SELECT codigo, nombre, tipo, cantidad, unidad, precio"
                 " FROM pedido_items WHERE pedido_id = ?", (pedido_id,)).fetchall()
             return [dict(r) for r in rows]
 
@@ -90,7 +106,8 @@ class PedidosDAO:
 # ---------------------------------------------------------------------------
 
 def generar_imagen_pedido(nombre_empresa, logo_empresa_ruta,
-                          nombre_proveedor, logo_proveedor_ruta, items, ruta_salida):
+                          nombre_proveedor, logo_proveedor_ruta, items, ruta_salida,
+                          telefono_prov="", representante_prov=""):
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -130,7 +147,7 @@ def generar_imagen_pedido(nombre_empresa, logo_empresa_ruta,
     draw.text((30 + logo_offset, y + 60), f"Fecha: {fecha_str}",  font=f_sub,   fill="#6b7099")
     draw.rectangle([(30, HEADER_H - 12), (W - 30, HEADER_H - 10)], fill="#2a2e45")
 
-    COLS = [("Codigo",120),("Nombre",280),("Tipo",120),("Cantidad",90),("Unidad",110)]
+    COLS = [("Codigo",100),("Nombre",200),("Tipo",100),("Precio",90),("Cantidad",80),("Total",90)]
     y_th = HEADER_H + 4; x_cur = 30
     draw.rectangle([(25, y_th - 4), (W - 25, y_th + TABLE_HEADER_H - 4)], fill="#1a1e30")
     for col_name, col_w in COLS:
@@ -138,12 +155,19 @@ def generar_imagen_pedido(nombre_empresa, logo_empresa_ruta,
         x_cur += col_w
 
     y_row = y_th + TABLE_HEADER_H
+    total_pedido = 0.0
     for i, item in enumerate(items):
         bg = "#13172a" if i % 2 == 0 else "#181c2e"
         draw.rectangle([(25, y_row), (W - 25, y_row + ROW_H)], fill=bg)
         x_cur = 30
+        
+        precio = item.get("precio", 0.0)
+        cantidad = item.get("cantidad", 1)
+        total = precio * cantidad
+        total_pedido += total
+        
         vals = [item.get("codigo",""), item.get("nombre",""), item.get("tipo",""),
-                str(item.get("cantidad","")), item.get("unidad","")]
+                f"${precio:.2f}", str(cantidad), f"${total:.2f}"]
         for val, (_, cw) in zip(vals, COLS):
             while val and draw.textlength(val, font=f_body) > cw - 12:
                 val = val[:-1]
@@ -152,19 +176,28 @@ def generar_imagen_pedido(nombre_empresa, logo_empresa_ruta,
         y_row += ROW_H
 
     draw.rectangle([(30, y_row + 4), (W - 30, y_row + 6)], fill="#2a2e45")
+    draw.text((W - 250, y_row + 15), f"Total del Pedido: ${total_pedido:.2f}", font=f_hdr, fill="#f0a500")
     
     logo_p_offset = 0
     if logo_proveedor_ruta and Path(logo_proveedor_ruta).exists():
         try:
             logo_p = Image.open(logo_proveedor_ruta).convert("RGBA")
-            logo_p.thumbnail((50, 50))
-            img.paste(logo_p, (30, H - FOOTER_H + 10), logo_p)
-            logo_p_offset = 60
+            logo_p.thumbnail((60, 60))
+            img.paste(logo_p, (30, H - FOOTER_H + 5), logo_p)
+            logo_p_offset = 70
         except Exception: pass
         
-    draw.text((30 + logo_p_offset, H - FOOTER_H + 35),
+    draw.text((30 + logo_p_offset, H - FOOTER_H + 15),
               nombre_proveedor,
               font=f_foot, fill="#2ecc71", anchor="lm")
+    
+    info_prov = []
+    if telefono_prov: info_prov.append(f"Telf: {telefono_prov}")
+    if representante_prov: info_prov.append(f"Atte: {representante_prov}")
+    if info_prov:
+        draw.text((30 + logo_p_offset, H - FOOTER_H + 40),
+                  " | ".join(info_prov),
+                  font=f_body, fill="#a0a5b5", anchor="lm")
     img.save(str(ruta_salida), "PNG")
 
 
@@ -214,6 +247,7 @@ class ProveedoresPage(ctk.CTkFrame):
         self._pedido_items = []
         self._prov_nombres = {}
         self._card_images  = []   # mantener referencias a fotos
+        self._selected_card: ctk.CTkFrame | None = None  # tarjeta actualmente seleccionada
         self._build()
 
     def _build(self):
@@ -260,10 +294,26 @@ class ProveedoresPage(ctk.CTkFrame):
         ctk.CTkLabel(form, text="Nombre *", font=(FONT,11),
                      text_color=COLORS["muted"]).pack(anchor="w", padx=16)
         self._prov_nombre = ctk.CTkEntry(
-            form, height=36, font=(FONT,12), placeholder_text="Nombre del proveedor",
+            form, height=32, font=(FONT,12), placeholder_text="Nombre del proveedor",
             fg_color=COLORS["card"], border_color=COLORS["border"],
             text_color=COLORS["text"], corner_radius=8)
-        self._prov_nombre.pack(fill="x", padx=16, pady=(2,12))
+        self._prov_nombre.pack(fill="x", padx=16, pady=(2,8))
+
+        ctk.CTkLabel(form, text="Teléfono", font=(FONT,11),
+                     text_color=COLORS["muted"]).pack(anchor="w", padx=16)
+        self._prov_telefono = ctk.CTkEntry(
+            form, height=32, font=(FONT,12), placeholder_text="Opcional",
+            fg_color=COLORS["card"], border_color=COLORS["border"],
+            text_color=COLORS["text"], corner_radius=8)
+        self._prov_telefono.pack(fill="x", padx=16, pady=(2,8))
+
+        ctk.CTkLabel(form, text="Representante", font=(FONT,11),
+                     text_color=COLORS["muted"]).pack(anchor="w", padx=16)
+        self._prov_representante = ctk.CTkEntry(
+            form, height=32, font=(FONT,12), placeholder_text="Opcional",
+            fg_color=COLORS["card"], border_color=COLORS["border"],
+            text_color=COLORS["text"], corner_radius=8)
+        self._prov_representante.pack(fill="x", padx=16, pady=(2,8))
 
         ctk.CTkLabel(form, text="Logo (opcional)", font=(FONT,11),
                      text_color=COLORS["muted"]).pack(anchor="w", padx=16)
@@ -324,6 +374,8 @@ class ProveedoresPage(ctk.CTkFrame):
 
     def _guardar_proveedor(self):
         nombre = self._prov_nombre.get().strip()
+        telefono = self._prov_telefono.get().strip()
+        representante = self._prov_representante.get().strip()
         if not nombre:
             self._prov_lbl_err.configure(text="El nombre es obligatorio.")
             return
@@ -334,11 +386,13 @@ class ProveedoresPage(ctk.CTkFrame):
             shutil.copy2(self._logo_tmp, dest)
             dest_logo = str(dest)
         try:
-            self._dao_prov.crear(nombre, dest_logo)
+            self._dao_prov.crear(nombre, telefono, representante, dest_logo)
         except Exception as e:
             self._prov_lbl_err.configure(text=f"Error: {e}")
             return
         self._prov_nombre.delete(0, "end")
+        self._prov_telefono.delete(0, "end")
+        self._prov_representante.delete(0, "end")
         self._lbl_logo.configure(text="Sin logo seleccionado", text_color=COLORS["muted"])
         self._logo_tmp = ""
         self._prov_lbl_err.configure(text="")
@@ -381,12 +435,14 @@ class ProveedoresPage(ctk.CTkFrame):
 
     def _crear_card_proveedor(self, p, row, col):
         card = ctk.CTkFrame(self._cards_scroll, fg_color=COLORS["input"],
-                            corner_radius=14, cursor="hand2")
+                            corner_radius=14, cursor="hand2",
+                            border_width=2, border_color=COLORS["border"])
         card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
 
-        # Logo
-        logo_label = ctk.CTkLabel(card, text="", width=80, height=80,
+        # Logo — siempre 80x80
+        LOGO_SIZE = 80
+        logo_label = ctk.CTkLabel(card, text="", width=LOGO_SIZE, height=LOGO_SIZE,
                                    fg_color=COLORS["card"], corner_radius=10)
         logo_label.grid(row=0, column=0, padx=12, pady=(14,6))
 
@@ -395,8 +451,13 @@ class ProveedoresPage(ctk.CTkFrame):
             try:
                 from PIL import Image as PILImg, ImageTk
                 pil = PILImg.open(ruta_logo).convert("RGBA")
-                pil.thumbnail((80, 80))
-                tk_img = ImageTk.PhotoImage(pil)
+                # Redimensionar a exactamente 80x80 rellenando con fondo transparente
+                pil.thumbnail((LOGO_SIZE, LOGO_SIZE), PILImg.LANCZOS)
+                canvas_img = PILImg.new("RGBA", (LOGO_SIZE, LOGO_SIZE), (0, 0, 0, 0))
+                offset_x = (LOGO_SIZE - pil.width) // 2
+                offset_y = (LOGO_SIZE - pil.height) // 2
+                canvas_img.paste(pil, (offset_x, offset_y))
+                tk_img = ImageTk.PhotoImage(canvas_img)
                 logo_label.configure(image=tk_img, fg_color="transparent")
                 self._card_images.append(tk_img)
             except Exception:
@@ -420,9 +481,18 @@ class ProveedoresPage(ctk.CTkFrame):
 
         # Click en card selecciona
         for widget in (card, logo_label):
-            widget.bind("<Button-1>", lambda e, _p=p: self._seleccionar_proveedor(_p))
+            widget.bind("<Button-1>", lambda e, _p=p, _c=card: self._seleccionar_proveedor(_p, _c))
 
-    def _seleccionar_proveedor(self, p):
+    def _seleccionar_proveedor(self, p, card: ctk.CTkFrame | None = None):
+        # Deseleccionar tarjeta anterior
+        if self._selected_card is not None:
+            try:
+                self._selected_card.configure(border_color=COLORS["border"])
+            except Exception:
+                pass
+        self._selected_card = card
+        if card is not None:
+            card.configure(border_color=COLORS["accent"])
         self._selected_prov_id     = p["id"]
         self._selected_prov_nombre = p["nombre"]
 
@@ -463,8 +533,9 @@ class ProveedoresPage(ctk.CTkFrame):
         # Codigo (pequeno), Nombre (pequeno), Tipo (mas grande), Cantidad
         fields = [
             ("Codigo",   "_ped_codigo",    90, "Cod."),
-            ("Nombre",   "_ped_nombre",   160, "Nombre del repuesto"),
-            ("Tipo",     "_ped_tipo",     250, "Tipo / Categoria / Descripcion"),
+            ("Nombre",   "_ped_nombre",   150, "Nombre del repuesto"),
+            ("Tipo",     "_ped_tipo",     150, "Tipo / Categoria / Descripcion"),
+            ("Precio",   "_ped_precio",    70, "0.00"),
             ("Cantidad", "_ped_cantidad",  60, "1"),
         ]
         self._entries_list = []
@@ -511,7 +582,7 @@ class ProveedoresPage(ctk.CTkFrame):
 
         ctk.CTkLabel(item_f, text="Unidad", font=(FONT,11),
                      text_color=COLORS["muted"]).grid(
-            row=0, column=8, padx=(4,2), pady=(10,2), sticky="w")
+            row=0, column=10, padx=(4,2), pady=(10,2), sticky="w")
         self._ped_unidad = ctk.CTkComboBox(
             item_f, values=["Unidad","Caja","Rollo"],
             width=90, height=34, font=(FONT,12),
@@ -520,16 +591,16 @@ class ProveedoresPage(ctk.CTkFrame):
             dropdown_fg_color=COLORS["card"], dropdown_text_color=COLORS["text"],
             text_color=COLORS["text"], corner_radius=8, state="readonly")
         self._ped_unidad.set("Unidad")
-        self._ped_unidad.grid(row=0, column=9, padx=(0,6), pady=(10,2))
+        self._ped_unidad.grid(row=0, column=11, padx=(0,6), pady=(10,2))
 
         self._ped_lbl_err = ctk.CTkLabel(item_f, text="", font=(FONT,10),
                                           text_color=COLORS["danger"])
-        self._ped_lbl_err.grid(row=1, column=0, columnspan=10, padx=14, pady=(2,4), sticky="w")
+        self._ped_lbl_err.grid(row=1, column=0, columnspan=12, padx=14, pady=(2,4), sticky="w")
         btn_anadir = ctk.CTkButton(item_f, text="Añadir", height=34, width=70,
                       font=(FONT,12,"bold"), fg_color=COLORS["success"],
                       hover_color=COLORS["success_h"], text_color="#fff",
                       corner_radius=8, command=self._anadir_item)
-        btn_anadir.grid(row=0, column=10, padx=(4,8), pady=(10,2), sticky="ew")
+        btn_anadir.grid(row=0, column=12, padx=(4,8), pady=(10,2), sticky="ew")
         
         # Add return binding to cantidad to trigger Anadir
         self._ped_cantidad.bind("<Return>", lambda e: self._anadir_item())
@@ -570,8 +641,9 @@ class ProveedoresPage(ctk.CTkFrame):
         self._ped_tree = _make_tree(tw, cols=[
             ("#",        "#",         30,  "center"),
             ("codigo",   "Codigo",    80,  "w"),
-            ("nombre",   "Nombre",   240,  "w"),
-            ("tipo",     "Tipo",     250,  "w"),
+            ("nombre",   "Nombre",   200,  "w"),
+            ("tipo",     "Tipo",     200,  "w"),
+            ("precio",   "Precio",    70,  "center"),
             ("cantidad", "Cant.",     60,  "center"),
             ("unidad",   "Unidad",    80,  "center"),
         ], style_name="Ped.Treeview")
@@ -594,22 +666,27 @@ class ProveedoresPage(ctk.CTkFrame):
         cant_str = self._ped_cantidad.get().strip()
         if not cant_str:
             cant_str = "1"
+        precio_str = self._ped_precio.get().strip()
+        if not precio_str:
+            precio_str = "0.0"
         try:
             cantidad = int(cant_str)
-            if cantidad <= 0:
+            precio = float(precio_str)
+            if cantidad <= 0 or precio < 0:
                 raise ValueError
         except ValueError:
-            self._ped_lbl_err.configure(text="La cantidad debe ser un numero entero positivo.")
+            self._ped_lbl_err.configure(text="Cantidad debe ser > 0 y Precio >= 0.")
             return
         self._pedido_items.append({
             "codigo":   self._ped_codigo.get().strip(),
             "nombre":   nombre,
             "tipo":     self._ped_tipo.get().strip(),
+            "precio":   precio,
             "cantidad": cantidad,
             "unidad":   self._ped_unidad.get(),
         })
         self._refresh_ped_tree()
-        for attr in ("_ped_codigo","_ped_nombre","_ped_tipo","_ped_cantidad"):
+        for attr in ("_ped_codigo","_ped_nombre","_ped_tipo","_ped_precio","_ped_cantidad"):
             getattr(self, attr).delete(0, "end")
         self._ped_unidad.set("Unidad")
 
@@ -621,6 +698,7 @@ class ProveedoresPage(ctk.CTkFrame):
         self._ped_codigo.delete(0, "end"); self._ped_codigo.insert(0, item["codigo"])
         self._ped_nombre.delete(0, "end"); self._ped_nombre.insert(0, item["nombre"])
         self._ped_tipo.delete(0, "end"); self._ped_tipo.insert(0, item["tipo"])
+        self._ped_precio.delete(0, "end"); self._ped_precio.insert(0, str(item.get("precio", 0)))
         self._ped_cantidad.delete(0, "end"); self._ped_cantidad.insert(0, str(item["cantidad"]))
         self._ped_unidad.set(item["unidad"])
         self._refresh_ped_tree()
@@ -633,7 +711,7 @@ class ProveedoresPage(ctk.CTkFrame):
             tag = "even" if i % 2 == 0 else "odd"
             self._ped_tree.insert("","end", iid=str(i), tags=(tag,), values=(
                 i+1, item["codigo"], item["nombre"],
-                item["tipo"], item["cantidad"], item["unidad"]))
+                item["tipo"], f"${item.get('precio', 0):.2f}", item["cantidad"], item["unidad"]))
 
     def _quitar_item(self):
         sel = self._ped_tree.selection()
@@ -665,7 +743,10 @@ class ProveedoresPage(ctk.CTkFrame):
                 nombre_proveedor=nombre_prov,
                 logo_proveedor_ruta=prov_data.get("ruta_logo", ""),
                 items=self._pedido_items,
-                ruta_salida=ruta_png)
+                ruta_salida=ruta_png,
+                telefono_prov=prov_data.get("telefono", ""),
+                representante_prov=prov_data.get("representante", "")
+            )
         except RuntimeError as e:
             messagebox.showerror("Error de Pillow", str(e)); return
         except Exception as e:
@@ -707,10 +788,10 @@ class ProveedoresPage(ctk.CTkFrame):
         tw.grid(row=1, column=0, sticky="nsew")
         tw.grid_rowconfigure(0, weight=1); tw.grid_columnconfigure(0, weight=1)
         self._hist_tree = _make_tree(tw, cols=[
-            ("id",        "ID",         60,  "center"),
-            ("proveedor", "Proveedor",  220, "w"),
-            ("fecha",     "Fecha",      180, "center"),
-            ("ruta",      "Archivo",    380, "w"),
+            ("id",        "ID",                  60,  "center"),
+            ("proveedor", "Proveedor",           240, "w"),
+            ("fecha",     "Fecha",               180, "center"),
+            ("cant_prod", "Cant. Productos",     130, "center"),
         ], style_name="Hist.Treeview")
         self._hist_tree.bind("<Double-1>",   self._on_historial_dobleclick)
         self._hist_tree.bind("<<TreeviewSelect>>", self._on_historial_select)
@@ -721,10 +802,15 @@ class ProveedoresPage(ctk.CTkFrame):
             self._hist_tree.delete(row)
         for i, ped in enumerate(self._dao_ped.listar()):
             tag = "even" if i % 2 == 0 else "odd"
+            # Contar items del pedido
+            items = self._dao_ped.listar_items(ped["id"])
+            cant_prods = sum(it.get("cantidad", 0) for it in items)
+            n_referencias = len(items)
+            cant_label = f"{n_referencias} ref. / {cant_prods} uds."
             self._hist_tree.insert("","end", iid=str(ped["id"]), tags=(tag,),
                                    values=(ped["id"], ped["proveedor"],
                                            ped["fecha"].replace("T","  "),
-                                           ped["ruta_imagen"]))
+                                           cant_label))
 
     def _on_historial_select(self, _event=None):
         sel = self._hist_tree.selection()
@@ -786,9 +872,14 @@ class ProveedoresPage(ctk.CTkFrame):
     def _on_historial_dobleclick(self, _event=None):
         sel = self._hist_tree.selection()
         if not sel: return
-        ruta = self._hist_tree.item(sel[0], "values")[3]
+        # Abrir la imagen del pedido
+        pedido_id = int(sel[0])
+        # Obtener la ruta desde la BD directamente
+        with get_connection() as conn:
+            row = conn.execute("SELECT ruta_imagen FROM pedidos WHERE id = ?", (pedido_id,)).fetchone()
+        ruta = row["ruta_imagen"] if row else ""
         if not ruta or not Path(ruta).exists():
-            messagebox.showwarning("No encontrado", f"Archivo no existe:\n{ruta}")
+            messagebox.showwarning("No encontrado", f"Imagen del pedido no encontrada:\n{ruta}")
             return
         try: os.startfile(ruta)
         except Exception as e: messagebox.showerror("Error", str(e))

@@ -11,6 +11,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
+from datetime import date, timedelta
 
 import customtkinter as ctk
 
@@ -20,24 +21,27 @@ from database.inventario_db import VentasDAO  # noqa: E402
 # ---------------------------------------------------------------------------
 # Paleta (idéntica al resto del proyecto)
 # ---------------------------------------------------------------------------
-FONT = "Segoe UI"
+from ui.app import COLORS as _AC, FONT_FAMILY  # noqa: E402
+
+FONT = FONT_FAMILY
 
 C = {
-    "bg":       "#0f1117",
-    "card":     "#1c1f2b",
-    "input":    "#252836",
-    "border":   "#2e3246",
-    "accent":   "#4f8ef7",
-    "success":  "#3ecf8e",
+    "bg":       _AC["bg_root"],
+    "card":     _AC["bg_card"],
+    "input":    _AC["bg_input"],
+    "border":   _AC["border"],
+    "accent":   _AC["accent"],
+    "success":  _AC["success"],
     "warning":  "#e0954a",
-    "danger":   "#e05c5c",
-    "text":     "#e8eaf0",
-    "muted":    "#8b91a7",
-    "row_even": "#1c1f2b",
-    "row_odd":  "#212438",
-    "row_sel":  "#2a3a6a",
+    "danger":   _AC["danger"],
+    "text":     _AC["text_primary"],
+    "muted":    _AC["text_muted"],
+    "row_even": _AC["row_even"],
+    "row_odd":  _AC["row_odd"],
+    "row_sel":  _AC["row_selected"],
     "gold":     "#f5c518",
 }
+
 
 
 # ===========================================================================
@@ -50,7 +54,8 @@ class HistorialVentasWindow(ctk.CTkToplevel):
 
     Layout:
       ┌──────────────────────────────────────────────────────────────────────┐
-      │  Título                                    [🔄 Actualizar]          │
+      │  Título                    [filtros]         [🔄 Actualizar]        │
+      ├─────────────────[filtro fecha]──────────────────────────────────────-┤
       ├──────────────────────────────┬───────────────────────────────────────┤
       │  Tabla de Ventas (izquierda) │  Detalles de la venta (derecha)       │
       └──────────────────────────────┴───────────────────────────────────────┘
@@ -77,6 +82,8 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self._dao         = VentasDAO()
         self._tasa_actual = tasa_actual   # para incluirla en el PDF
+        self._filtro_fecha: str | None = None   # "YYYY-MM-DD" or None = all
+        self._filtro_activo: str = "todo"       # "hoy"|"ayer"|"semana"|"todo"|"custom"
         self._setup_window()
         self._build()
         self._cargar_ventas()
@@ -87,7 +94,6 @@ class HistorialVentasWindow(ctk.CTkToplevel):
 
     def _setup_window(self):
         self.title("📋 RepuestosDB — Historial de Ventas")
-        self.geometry("1150x680")
         self.minsize(900, 500)
         self.configure(fg_color=C["bg"])
         self.grab_set()
@@ -98,22 +104,25 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         py = self.master.winfo_rooty()
         pw = self.master.winfo_width()
         ph = self.master.winfo_height()
-        x  = px + (pw - 1150) // 2
-        y  = py + (ph - 680)  // 2
-        self.geometry(f"1150x680+{x}+{y}")
+        
+        w, h = 1200, 740
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
     # ------------------------------------------------------------------
     # Construcción de la UI
     # ------------------------------------------------------------------
 
     def _build(self):
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
 
         # ── Top bar ──────────────────────────────────────────────────
         top = ctk.CTkFrame(self, fg_color="transparent")
-        top.grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 8), sticky="ew")
+        top.grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 4), sticky="ew")
         top.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -149,79 +158,171 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             command=self._generar_reporte,
         ).grid(row=0, column=3, sticky="e")
 
+        # ── Barra de filtro por fecha ─────────────────────────────────
+        filter_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=10)
+        filter_bar.grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="ew")
+        filter_bar.grid_columnconfigure(5, weight=1)
+
+        ctk.CTkLabel(filter_bar, text="📅 Filtrar:", font=(FONT, 11, "bold"),
+                     text_color=C["muted"]).grid(row=0, column=0, padx=(14, 8), pady=10)
+
+        FILTROS = [
+            ("hoy",    "Hoy"),
+            ("ayer",   "Ayer"),
+            ("semana", "Esta semana"),
+            ("todo",   "Todo"),
+        ]
+        self._filter_btns: dict[str, ctk.CTkButton] = {}
+        for col_i, (key, label) in enumerate(FILTROS, start=1):
+            btn = ctk.CTkButton(
+                filter_bar, text=label, width=100, height=30,
+                font=(FONT, 11, "bold"), corner_radius=8,
+                fg_color=C["accent"] if key == "todo" else C["input"],
+                hover_color=C["accent"],
+                text_color="#fff" if key == "todo" else C["muted"],
+                command=lambda k=key: self._aplicar_filtro_rapido(k),
+            )
+            btn.grid(row=0, column=col_i, padx=4, pady=10)
+            self._filter_btns[key] = btn
+
+        ctk.CTkFrame(filter_bar, fg_color=C["border"], width=1).grid(
+            row=0, column=5, padx=12, pady=6, sticky="ns")
+
+        ctk.CTkLabel(filter_bar, text="Fecha exacta:", font=(FONT, 11),
+                     text_color=C["muted"]).grid(row=0, column=6, padx=(8, 4), pady=10)
+        self._fecha_var = ctk.StringVar()
+        
+        from tkcalendar import DateEntry
+        self._fecha_entry = DateEntry(
+            filter_bar, textvariable=self._fecha_var, width=12,
+            background=C.get("accent", "#2563eb"), foreground='white', borderwidth=2,
+            date_pattern='yyyy-mm-dd', font=("Segoe UI", 10)
+        )
+        self._fecha_entry.grid(row=0, column=7, padx=(0, 4), pady=10)
+        self._fecha_entry.bind("<<DateEntrySelected>>", lambda _: self._aplicar_filtro_custom())
+        
+        ctk.CTkButton(
+            filter_bar, text="🔍", width=36, height=30, font=(FONT, 12),
+            fg_color=C["input"], hover_color=C["accent"], text_color=C["accent"],
+            corner_radius=8, command=self._aplicar_filtro_custom,
+        ).grid(row=0, column=8, padx=(0, 4), pady=10)
+        ctk.CTkButton(
+            filter_bar, text="✕ Limpiar", width=80, height=30, font=(FONT, 11),
+            fg_color=C["input"], hover_color=C["border"], text_color=C["muted"],
+            corner_radius=8, command=lambda: self._aplicar_filtro_rapido("todo"),
+        ).grid(row=0, column=9, padx=(0, 14), pady=10)
+
+        self._lbl_filtro = ctk.CTkLabel(filter_bar, text="Mostrando todas las ventas",
+                                         font=(FONT, 10), text_color=C["accent"])
+        self._lbl_filtro.grid(row=0, column=10, padx=(8, 14), pady=10, sticky="e")
+
         # ── Panel izquierdo: lista de ventas ─────────────────────────
         left = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=12)
-        left.grid(row=1, column=0, padx=(16, 6), pady=(0, 16), sticky="nsew")
+        left.grid(row=2, column=0, padx=(16, 6), pady=(0, 16), sticky="nsew")
         left.grid_rowconfigure(1, weight=1)
         left.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            left,
-            text="Ventas registradas",
-            font=(FONT, 13, "bold"),
-            text_color=C["text"],
-            anchor="w",
-        ).grid(row=0, column=0, padx=14, pady=(12, 6), sticky="w")
+        ctk.CTkLabel(left, text="Ventas registradas", font=(FONT, 13, "bold"),
+                     text_color=C["text"], anchor="w").grid(
+            row=0, column=0, padx=14, pady=(12, 6), sticky="w")
 
-        self._lbl_total_ventas = ctk.CTkLabel(
-            left, text="",
-            font=(FONT, 11), text_color=C["muted"], anchor="e",
-        )
+        self._lbl_total_ventas = ctk.CTkLabel(left, text="", font=(FONT, 11),
+                                               text_color=C["muted"], anchor="e")
         self._lbl_total_ventas.grid(row=0, column=1, padx=14, pady=(12, 6), sticky="e")
 
-        self._ventas_tree = self._make_treeview(
-            left,
-            cols=self.COLS_VENTAS,
-            style_name="Ventas.Treeview",
-        )
-        self._ventas_tree._frame.grid(
-            row=1, column=0, columnspan=2,
-            in_=left, padx=14, pady=(0, 14), sticky="nsew")
+        self._ventas_tree = self._make_treeview(left, cols=self.COLS_VENTAS, style_name="Ventas.Treeview")
+        self._ventas_tree._frame.grid(row=1, column=0, columnspan=2,
+                                       in_=left, padx=14, pady=(0, 14), sticky="nsew")
         self._ventas_tree.bind("<<TreeviewSelect>>", self._on_venta_seleccionada)
 
         # ── Panel derecho: detalle de la venta seleccionada ──────────
         right = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=12)
-        right.grid(row=1, column=1, padx=(0, 16), pady=(0, 16), sticky="nsew")
+        right.grid(row=2, column=1, padx=(0, 16), pady=(0, 16), sticky="nsew")
         right.grid_rowconfigure(2, weight=1)
         right.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            right,
-            text="Detalle de la venta seleccionada",
-            font=(FONT, 13, "bold"),
-            text_color=C["text"],
-            anchor="w",
-        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
+        ctk.CTkLabel(right, text="Detalle de la venta seleccionada",
+                     font=(FONT, 13, "bold"), text_color=C["text"], anchor="w").grid(
+            row=0, column=0, padx=14, pady=(12, 4), sticky="w")
 
-        # Info del cliente
         self._lbl_cliente_info = ctk.CTkLabel(
-            right,
-            text="Selecciona una venta para ver su detalle",
-            font=(FONT, 11),
-            text_color=C["muted"],
-            anchor="w",
-            wraplength=360,
-        )
+            right, text="Selecciona una venta para ver su detalle",
+            font=(FONT, 11), text_color=C["muted"], anchor="w", wraplength=360)
         self._lbl_cliente_info.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="w")
 
-        # Tabla de detalles
-        self._detalle_tree = self._make_treeview(
-            right,
-            cols=self.COLS_DETALLE,
-            style_name="Detalle.Treeview",
-        )
-        self._detalle_tree._frame.grid(
-            row=2, column=0, in_=right, padx=14, pady=(0, 8), sticky="nsew")
+        self._detalle_tree = self._make_treeview(right, cols=self.COLS_DETALLE, style_name="Detalle.Treeview")
+        self._detalle_tree._frame.grid(row=2, column=0, in_=right, padx=14, pady=(0, 8), sticky="nsew")
 
-        # Totales del detalle
         self._lbl_total_detalle = ctk.CTkLabel(
-            right,
-            text="",
-            font=(FONT, 14, "bold"),
-            text_color=C["success"],
-            anchor="e",
-        )
+            right, text="", font=(FONT, 14, "bold"), text_color=C["success"], anchor="e")
         self._lbl_total_detalle.grid(row=3, column=0, padx=14, pady=(0, 14), sticky="e")
+        
+        self._btn_factura = ctk.CTkButton(
+            right, text="Generar Factura", height=32,
+            font=(FONT, 12, "bold"), fg_color=C["accent"], hover_color=C["accent_hover"],
+            command=self._generar_factura_seleccionada, state="disabled"
+        )
+        self._btn_factura.grid(row=4, column=0, padx=14, pady=(0, 14), sticky="e")
+
+    # ------------------------------------------------------------------
+    # Filtros
+    # ------------------------------------------------------------------
+
+    def _aplicar_filtro_rapido(self, key: str):
+        """Establece el filtro de fecha predefinido y recarga la tabla."""
+        hoy = date.today()
+        if key == "hoy":
+            self._filtro_fecha = hoy.isoformat()
+            self._lbl_filtro.configure(text=f"Mostrando: Hoy ({hoy})", text_color=C["accent"])
+        elif key == "ayer":
+            ayer = (hoy - timedelta(days=1)).isoformat()
+            self._filtro_fecha = ayer
+            self._lbl_filtro.configure(text=f"Mostrando: Ayer ({ayer})", text_color=C["accent"])
+        elif key == "semana":
+            inicio = hoy - timedelta(days=hoy.weekday())
+            self._filtro_fecha = f"{inicio.isoformat()}:{hoy.isoformat()}"
+            self._lbl_filtro.configure(text=f"Mostrando: {inicio} → {hoy}", text_color=C["accent"])
+        else:  # "todo"
+            self._filtro_fecha = None
+            self._lbl_filtro.configure(text="Mostrando todas las ventas", text_color=C["accent"])
+
+        self._filtro_activo = key
+        for k, btn in self._filter_btns.items():
+            activo = (k == key)
+            btn.configure(
+                fg_color=C["accent"] if activo else C["input"],
+                text_color="#fff" if activo else C["muted"],
+            )
+        self._fecha_var.set("")
+        self._cargar_ventas()
+
+    def _aplicar_filtro_custom(self):
+        """Filtra por la fecha exacta ingresada manualmente."""
+        raw = self._fecha_var.get().strip()
+        if not raw:
+            self._aplicar_filtro_rapido("todo")
+            return
+        try:
+            date.fromisoformat(raw)
+        except ValueError:
+            self._lbl_filtro.configure(text="⚠ Formato inválido (AAAA-MM-DD)", text_color=C["danger"])
+            return
+        self._filtro_fecha = raw
+        self._filtro_activo = "custom"
+        for btn in self._filter_btns.values():
+            btn.configure(fg_color=C["input"], text_color=C["muted"])
+        self._lbl_filtro.configure(text=f"Mostrando: {raw}", text_color=C["accent"])
+        self._cargar_ventas()
+
+    def _venta_pasa_filtro(self, fecha_raw: str) -> bool:
+        """Devuelve True si la venta entra dentro del filtro activo."""
+        if not self._filtro_fecha:
+            return True
+        date_only = fecha_raw.split(" ")[0].split("T")[0] if fecha_raw else ""
+        if ":" in self._filtro_fecha:
+            inicio, fin = self._filtro_fecha.split(":")
+            return inicio <= date_only <= fin
+        return date_only == self._filtro_fecha
 
     # ------------------------------------------------------------------
     # Helper: crear Treeview con scroll
@@ -272,6 +373,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
 
         tree.tag_configure("even", background=C["row_even"])
         tree.tag_configure("odd",  background=C["row_odd"])
+        tree.tag_configure("separator", background=C["border"], foreground=C["text"])
 
         vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=vsb.set)
@@ -288,13 +390,30 @@ class HistorialVentasWindow(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _cargar_ventas(self):
-        """Carga (o recarga) la tabla principal con todas las ventas."""
+        """Carga (o recarga) la tabla principal aplicando el filtro activo."""
         for row in self._ventas_tree.get_children():
             self._ventas_tree.delete(row)
 
-        ventas = self._dao.listar_ventas()
+        ventas_todas = self._dao.listar_ventas()
+        ventas = [v for v in ventas_todas if self._venta_pasa_filtro(v.get("fecha", ""))]
+        
+        last_date = None
+        sep_counter = 0
         for i, v in enumerate(ventas):
-            fecha = v["fecha"].replace("T", "  ") if "T" in v["fecha"] else v["fecha"]
+            raw_fecha = v.get("fecha") or ""
+            date_only = raw_fecha.split(" ")[0].split("T")[0] if raw_fecha else "Desconocida"
+            
+            if date_only != last_date:
+                sep_counter += 1
+                self._ventas_tree.insert(
+                    "", "end",
+                    iid=f"sep_{sep_counter}",
+                    tags=("separator",),
+                    values=("", f"📅 {date_only}", "", "", "", "", ""),
+                )
+                last_date = date_only
+
+            fecha = raw_fecha.replace("T", "  ") if "T" in raw_fecha else raw_fecha
             tag   = "even" if i % 2 == 0 else "odd"
             self._ventas_tree.insert(
                 "", "end",
@@ -312,7 +431,9 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             )
 
         n = len(ventas)
-        self._lbl_total_ventas.configure(text=f"{n} venta{'s' if n != 1 else ''}")
+        total_n = len(ventas_todas)
+        suffix = f" de {total_n}" if self._filtro_fecha and total_n != n else ""
+        self._lbl_total_ventas.configure(text=f"{n}{suffix} venta{'s' if n != 1 else ''}")
 
         # Limpiar detalle
         self._limpiar_detalle()
@@ -322,6 +443,11 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         sel = self._ventas_tree.selection()
         if not sel:
             return
+            
+        if sel[0].startswith("sep_"):
+            self._limpiar_detalle()
+            return
+            
         id_venta = int(sel[0])
 
         # Buscar info del cliente en los valores de la fila
@@ -360,7 +486,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             total += d["subtotal"]
 
         self._lbl_total_detalle.configure(
-            text=f"TOTAL:  ${total:,.2f} USD",
+            text=f"TOTAL:  ${total:,.2f} USD   |   Pagado con: {metodo}",
         )
 
     def _limpiar_detalle(self):
@@ -372,6 +498,39 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             text_color=C["muted"],
         )
         self._lbl_total_detalle.configure(text="")
+
+
+    def _generar_factura_seleccionada(self):
+        sel = self._ventas_tree.selection()
+        if not sel:
+            return
+            
+        import os
+        import platform
+        import subprocess
+        from utils.factura_pdf import generar_factura_venta
+        from database.inventario_db import EmpresasDAO
+        
+        try:
+            venta_id = int(self._ventas_tree.item(sel[0], "values")[0])
+            venta = self._dao.obtener_por_id(venta_id)
+            detalles = self._dao.obtener_detalles(venta_id)
+            
+            empresas_dao = EmpresasDAO()
+            empresa = empresas_dao.obtener() or {}
+            
+            ruta_pdf = generar_factura_venta(venta, detalles, empresa, self._tasa_actual)
+            
+            # Open PDF
+            if platform.system() == "Windows":
+                os.startfile(ruta_pdf)
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", ruta_pdf], check=False)
+            else:
+                subprocess.run(["xdg-open", ruta_pdf], check=False)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"No se pudo generar la factura:\n{e}")
 
     def _generar_reporte(self):
         """Genera el PDF del Reporte de Cierre de Día y lo abre."""

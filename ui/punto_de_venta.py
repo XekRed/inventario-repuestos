@@ -20,32 +20,34 @@ from pathlib import Path
 import customtkinter as ctk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from database.inventario_db import InventarioDAO, VentasDAO, DeudoresDAO  # noqa: E402
+from database.inventario_db import InventarioDAO, VentasDAO, DeudoresDAO, ClientesDAO, CombosDAO  # noqa: E402
 
 ROOT_DIR   = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT_DIR / "config"
 CONFIG_DIR.mkdir(exist_ok=True)
 TASA_FILE  = CONFIG_DIR / "tasa.json"
 
-FONT = "Segoe UI"
+from ui.app import COLORS as _AC, FONT_FAMILY  # noqa: E402
+
+FONT = FONT_FAMILY
 
 C = {
-    "bg":        "#0f1117",
-    "card":      "#1c1f2b",
-    "sidebar":   "#16181f",
-    "input":     "#252836",
-    "border":    "#2e3246",
-    "accent":    "#4f8ef7",
-    "accent_h":  "#3a6fd8",
-    "success":   "#3ecf8e",
-    "success_h": "#2fb87a",
+    "bg":        _AC["bg_root"],
+    "card":      _AC["bg_card"],
+    "sidebar":   _AC.get("bg_sidebar", _AC["bg_root"]),
+    "input":     _AC["bg_input"],
+    "border":    _AC["border"],
+    "accent":    _AC["accent"],
+    "accent_h":  _AC["accent_hover"],
+    "success":   _AC["success"],
+    "success_h": _AC["success"],
     "warning":   "#e0954a",
-    "danger":    "#e05c5c",
-    "text":      "#e8eaf0",
-    "muted":     "#8b91a7",
-    "row_even":  "#1c1f2b",
-    "row_odd":   "#212438",
-    "row_sel":   "#2a3a6a",
+    "danger":    _AC["danger"],
+    "text":      _AC["text_primary"],
+    "muted":     _AC["text_muted"],
+    "row_even":  _AC["row_even"],
+    "row_odd":   _AC["row_odd"],
+    "row_sel":   _AC["row_selected"],
     "gold":      "#f5c518",
 }
 
@@ -83,7 +85,7 @@ class TasaPanel(ctk.CTkFrame):
         self._cargar()
 
     def _build(self):
-        self.grid_columnconfigure(2, weight=1)
+        self.grid_columnconfigure(3, weight=1)
         ctk.CTkLabel(self, text="💱  Tasa del Dólar (Bs/USD):",
                      font=(FONT, 13, "bold"), text_color=C["text"]).grid(
             row=0, column=0, padx=(16, 8), pady=14)
@@ -97,9 +99,19 @@ class TasaPanel(ctk.CTkFrame):
         ctk.CTkButton(self, text="💾 Guardar", width=100, height=36,
                       font=(FONT, 12, "bold"), fg_color=C["accent"],
                       hover_color=C["accent_h"], corner_radius=8,
-                      command=self._on_guardar).grid(row=0, column=2, padx=(0, 16), pady=14, sticky="w")
+                      command=self._on_guardar).grid(row=0, column=2, padx=(0, 8), pady=14, sticky="w")
+        # Botón link al monitor BCV
+        def _abrir_bcv():
+            import webbrowser
+            webbrowser.open("https://xekred.github.io/dolar-bcv-monitor/")
+        ctk.CTkButton(self, text="🌐 Ver precio BCV", width=140, height=36,
+                      font=(FONT, 11), fg_color="#0a1628",
+                      hover_color=C["accent"], text_color=C["accent"],
+                      border_width=1, border_color=C["accent"],
+                      corner_radius=8, command=_abrir_bcv).grid(
+            row=0, column=3, padx=(0, 8), pady=14, sticky="w")
         self._lbl_estado = ctk.CTkLabel(self, text="", font=(FONT, 11), text_color=C["success"])
-        self._lbl_estado.grid(row=0, column=3, padx=(0, 16), pady=14)
+        self._lbl_estado.grid(row=0, column=4, padx=(0, 16), pady=14)
 
     def _cargar(self):
         self._var.set(f"{cargar_tasa():.2f}")
@@ -134,6 +146,8 @@ class ProductSearch(ctk.CTkFrame):
     def __init__(self, parent, dao: InventarioDAO, on_add, **kwargs):
         super().__init__(parent, fg_color=C["sidebar"], corner_radius=0, **kwargs)
         self._dao    = dao
+        from database.inventario_db import CombosDAO
+        self._combos_dao = CombosDAO()
         self._on_add = on_add
         self._resultados: list[dict] = []
         self._build()
@@ -173,7 +187,7 @@ class ProductSearch(ctk.CTkFrame):
         scrollbar.config(command=self._listbox.yview)
         self._listbox.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
-        # self._listbox.bind("<Double-1>", lambda _: self._agregar_seleccionado()) # REMOVED
+        self._listbox.bind("<Double-1>", self._on_listbox_double_click)
 
         self._info_frame = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=10)
         self._info_frame.grid(row=3, column=0, padx=10, pady=(0, 8), sticky="ew")
@@ -242,19 +256,40 @@ class ProductSearch(ctk.CTkFrame):
 
     def _buscar(self, termino: str):
         termino = termino.strip().lower()
+        
+        # Productos regulares
         if termino:
-            self._resultados = [
+            prods = [
                 r for r in self._dao.listar_todos()
                 if termino in r["nombre"].lower()
                 or termino in (r["marca"] or "").lower()
                 or termino in (r["sku"] or "").lower()
             ]
         else:
-            self._resultados = self._dao.listar_todos()
+            prods = [r for r in self._dao.listar_todos() if r["cantidad"] > 0]
+            
+        for p in prods:
+            p["is_combo"] = False
+            
+        # Combos
+        combos = []
+        for c in self._combos_dao.listar():
+            if not termino or termino in c["nombre"].lower():
+                c["is_combo"] = True
+                combos.append(c)
+
+        self._resultados = combos + prods
+        
         self._listbox.delete(0, "end")
-        for r in self._resultados:
-            stock_tag = "" if r["cantidad"] > 0 else "  ⚠️ SIN STOCK"
-            self._listbox.insert("end", f"  {r['nombre']}{stock_tag}")
+        for i, r in enumerate(self._resultados):
+            if r.get("is_combo"):
+                self._listbox.insert("end", f"  🎁 {r['nombre']} (-{r['descuento']:.0f}%)")
+                self._listbox.itemconfig(i, {'fg': C["gold"]})
+            else:
+                stock_tag = "" if r["cantidad"] > 0 else "  ⚠️ SIN STOCK"
+                self._listbox.insert("end", f"  {r['nombre']}{stock_tag}")
+                if r["cantidad"] <= 0:
+                    self._listbox.itemconfig(i, {'fg': C["danger"]})
 
     def _on_select(self, _event=None):
         sel = self._listbox.curselection()
@@ -263,6 +298,15 @@ class ProductSearch(ctk.CTkFrame):
         self._mostrar_r(r)
 
     def _mostrar_r(self, r):
+        if r.get("is_combo"):
+            self._lbl_nombre.configure(text=f"🎁 {r['nombre']}", text_color=C["gold"])
+            self._lbl_precio.configure(text=f"Precio combo: ${r['precio_final']:.2f} USD")
+            self._lbl_stock.configure(text=f"({r['num_items']} productos)")
+            self._lbl_img.configure(image="", text="COMBO")
+            if hasattr(self._lbl_img, '_image_ref'):
+                self._lbl_img._image_ref = None
+            return
+
         self._lbl_nombre.configure(
             text=f"{r['nombre']}  —  {r['marca']} {r['modelo']}",
             text_color=C["text"])
@@ -285,6 +329,46 @@ class ProductSearch(ctk.CTkFrame):
             self._lbl_img.configure(image="", text="N/A")
             self._lbl_img._image_ref = None
 
+    def _on_listbox_double_click(self, event=None):
+        sel = self._listbox.curselection()
+        if not sel: return
+        r = self._resultados[sel[0]]
+        
+        if r.get("is_combo"):
+            from database.inventario_db import CombosDAO
+            detalles = CombosDAO().obtener_detalle_completo(r["id"])
+            if detalles:
+                popup = ctk.CTkToplevel(self.winfo_toplevel())
+                popup.title("Contenido del Combo")
+                popup.geometry("350x300")
+                popup.configure(fg_color=C["bg"])
+                popup.grab_set()
+                popup.transient(self.winfo_toplevel())
+                
+                # Center popup
+                px = self.winfo_toplevel().winfo_rootx()
+                py = self.winfo_toplevel().winfo_rooty()
+                pw = self.winfo_toplevel().winfo_width()
+                ph = self.winfo_toplevel().winfo_height()
+                x = px + (pw - 350) // 2
+                y = py + (ph - 300) // 2
+                popup.geometry(f"350x300+{x}+{y}")
+                
+                ctk.CTkLabel(popup, text=f"🎁 {detalles['nombre']}", font=(FONT, 16, "bold"),
+                             text_color=C["gold"]).pack(pady=(20, 10))
+                             
+                scroll = ctk.CTkScrollableFrame(popup, fg_color="transparent")
+                scroll.pack(fill="both", expand=True, padx=20, pady=10)
+                
+                for item in detalles["items"]:
+                    ctk.CTkLabel(scroll, text=f"• {item['nombre']} (x{item['cantidad']})",
+                                 font=(FONT, 13), text_color=C["text"], anchor="w").pack(fill="x", pady=2)
+                
+                ctk.CTkButton(popup, text="Cerrar", fg_color=C["input"], text_color=C["text"],
+                              hover_color=C["border"], command=popup.destroy).pack(pady=15)
+        else:
+            self._agregar_seleccionado()
+
     def mostrar_info_id(self, p_id: int):
         for r in self._dao.listar_todos():
             if r["id"] == p_id:
@@ -294,7 +378,7 @@ class ProductSearch(ctk.CTkFrame):
     def _agregar_seleccionado(self):
         sel = self._listbox.curselection()
         if not sel:
-            messagebox.showwarning("Sin selección", "Selecciona un producto de la lista primero.")
+            messagebox.showwarning("Sin selección", "Selecciona un producto o combo de la lista primero.")
             return
         r = self._resultados[sel[0]]
         try:
@@ -302,8 +386,13 @@ class ProductSearch(ctk.CTkFrame):
             if qty <= 0:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("Cantidad inválida", "La cantidad debe ser un número entero positivo.")
+            messagebox.showerror("Error", "La cantidad debe ser mayor a 0")
             return
+            
+        if not r.get("is_combo") and r["cantidad"] <= 0:
+            messagebox.showwarning("Sin stock", "No hay stock de este producto.")
+            return
+
         self._on_add(r, qty)
         self._qty_var.set("1")
 
@@ -336,6 +425,8 @@ class CartPanel(ctk.CTkFrame):
         self._on_cart_select     = on_cart_select
         self._ventas_dao         = VentasDAO()
         self._deudores_dao       = DeudoresDAO()
+        self._clientes_dao       = ClientesDAO()
+        self._suggest_win        = None  # ventana flotante de sugerencias
         self._build()
 
     # ------------------------------------------------------------------
@@ -361,7 +452,7 @@ class CartPanel(ctk.CTkFrame):
         self._entry_cedula.insert(0, "N/A")
         self._entry_cedula.grid(row=0, column=3, padx=(0, 12), pady=10, sticky="ew")
 
-        # Auto-clear N/A behavior
+        # Auto-clear N/A behavior + autocomplete
         def _on_focus_in(event):
             w = event.widget
             if w.get() == "N/A":
@@ -370,11 +461,18 @@ class CartPanel(ctk.CTkFrame):
             w = event.widget
             if not w.get().strip():
                 w.insert(0, "N/A")
+            self.after(200, self._hide_suggestions)
 
         self._entry_nombre.bind("<FocusIn>", _on_focus_in)
         self._entry_nombre.bind("<FocusOut>", _on_focus_out)
         self._entry_cedula.bind("<FocusIn>", _on_focus_in)
         self._entry_cedula.bind("<FocusOut>", _on_focus_out)
+
+        # Autocomplete bindings
+        self._entry_cedula.bind("<KeyRelease>",
+            lambda e: self._on_buscar_cliente(self._entry_cedula.get(), "cedula"))
+        self._entry_nombre.bind("<KeyRelease>",
+            lambda e: self._on_buscar_cliente(self._entry_nombre.get(), "nombre"))
 
         # ── Encabezado ────────────────────────────────────────────────
         hdr = ctk.CTkFrame(self, fg_color="transparent")
@@ -408,20 +506,21 @@ class CartPanel(ctk.CTkFrame):
             self._tree.heading(col_id, text=heading, anchor=anchor)
             self._tree.column(col_id, width=width, anchor=anchor, minwidth=30,
                               stretch=(col_id == "nombre"))
-        self._tree.tag_configure("even", background=C["row_even"])
-        self._tree.tag_configure("odd",  background=C["row_odd"])
+        self._tree.tag_configure("even",    background=C["row_even"])
+        self._tree.tag_configure("odd",     background=C["row_odd"])
+        self._tree.tag_configure("sel_row", background=C["row_selected"], foreground=C["text_primary"])
         v_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=v_scroll.set)
         self._tree.grid(row=0, column=0, sticky="nsew")
         v_scroll.grid(row=0, column=1, sticky="ns")
-        self._tree.bind("<Double-1>",         self._on_editar_precio_inline)
+        self._tree.bind("<Double-1>", self._on_editar_precio_inline)
         self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
-        # ── Hint de edición inline ───────────────────────────────────
+        # ── Hint rapido ───────────────────────────────────────────────
         hint = ctk.CTkFrame(self, fg_color=C["sidebar"], corner_radius=8)
-        hint.grid(row=3, column=0, padx=14, pady=(0, 4), sticky="ew")
-        ctk.CTkLabel(hint, text="📝 Doble-clic en un producto para editar su precio  │  ⇕ Doble-clic en el precio para quitar el item",
-                     font=(FONT, 10), text_color=C["muted"]).grid(row=0, column=0, padx=12, pady=6, sticky="w")
+        hint.grid(row=3, column=0, padx=14, pady=(0, 2), sticky="ew")
+        ctk.CTkLabel(hint, text="📝 Clic en Precio o Cantidad para editar  │  Doble-clic en Nombre para quitar",
+                     font=(FONT, 10), text_color=C["muted"]).grid(row=0, column=0, padx=12, pady=5, sticky="w")
 
         # ── Totales + botones ─────────────────────────────────────────
         self._build_totales()
@@ -481,7 +580,7 @@ class CartPanel(ctk.CTkFrame):
         self._btn_multi_pago.grid(row=0, column=2, padx=(0, 6), sticky="ew")
 
         self._btn_fiado = ctk.CTkButton(
-            btn_row, text="💳  Fiado", font=(FONT, 13, "bold"), height=42,
+            btn_row, text="💳  Crédito", font=(FONT, 13, "bold"), height=42,
             fg_color="#2a1a0a", hover_color=C["warning"],
             text_color=C["warning"], corner_radius=10, state="disabled",
             command=self._on_abrir_fiado)
@@ -492,7 +591,7 @@ class CartPanel(ctk.CTkFrame):
         self._fiado_frame = ctk.CTkFrame(self, fg_color=C["sidebar"], corner_radius=12)
         self._fiado_frame.grid_columnconfigure((1, 3), weight=1)
 
-        ctk.CTkLabel(self._fiado_frame, text="💳  Datos del Fiado",
+        ctk.CTkLabel(self._fiado_frame, text="💳  Datos de Crédito",
                      font=(FONT, 14, "bold"), text_color=C["warning"]).grid(
             row=0, column=0, columnspan=4, padx=16, pady=(14, 8), sticky="w")
 
@@ -513,9 +612,12 @@ class CartPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(self._fiado_frame, text="Fecha límite *", font=(FONT, 11), text_color=C["muted"]).grid(
             row=2, column=0, padx=(16, 6), pady=(4, 8), sticky="w")
-        self._fiado_fecha = ctk.CTkEntry(self._fiado_frame, placeholder_text="DD/MM/AAAA",
-                                          font=(FONT, 12), height=34, fg_color=C["input"],
-                                          border_color=C["border"], text_color=C["text"], corner_radius=8)
+        from tkcalendar import DateEntry
+        self._fiado_fecha = DateEntry(
+            self._fiado_frame, width=12,
+            background=C.get("accent", "#2563eb"), foreground='white', borderwidth=2,
+            date_pattern='yyyy-mm-dd', font=("Segoe UI", 11)
+        )
         self._fiado_fecha.grid(row=2, column=1, padx=(0, 16), pady=(4, 8), sticky="ew")
 
         self._fiado_lbl_error = ctk.CTkLabel(self._fiado_frame, text="", font=(FONT, 10), text_color=C["danger"])
@@ -524,7 +626,7 @@ class CartPanel(ctk.CTkFrame):
         btn_f = ctk.CTkFrame(self._fiado_frame, fg_color="transparent")
         btn_f.grid(row=3, column=0, columnspan=4, padx=16, pady=(0, 14), sticky="ew")
         btn_f.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkButton(btn_f, text="✅  Confirmar Fiado", font=(FONT, 12, "bold"), height=38,
+        ctk.CTkButton(btn_f, text="✅  Confirmar Crédito", font=(FONT, 12, "bold"), height=38,
                       fg_color=C["warning"], hover_color="#c97a2a",
                       text_color="#0a0a0a", corner_radius=10,
                       command=self._on_confirmar_fiado).grid(row=0, column=0, padx=(0, 6), sticky="ew")
@@ -538,17 +640,28 @@ class CartPanel(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def agregar(self, record: dict, qty: int):
+        # Combo o producto normal
+        is_combo = record.get("is_combo", False)
         for item in self._items:
-            if item["id"] == record["id"]:
+            if item["id"] == record["id"] and item.get("is_combo") == is_combo:
                 item["qty"] += qty
                 self._refresh_table()
                 return
+        
+        precio = record.get("precio_venta", 0.0)
+        p_base = precio
+        if is_combo:
+            precio = record.get("precio_final", 0.0)
+            p_base = record.get("precio_base", 0.0)
+            
         self._items.append({
             "id":           record["id"],
-            "sku":          record.get("sku", ""),
+            "sku":          record.get("sku", "COMBO" if is_combo else ""),
             "nombre":       record.get("nombre", ""),
-            "precio_venta": record.get("precio_venta", 0.0),
+            "precio_venta": precio,
+            "precio_base":  p_base,
             "qty":          qty,
+            "is_combo":     is_combo,
         })
         self._refresh_table()
 
@@ -574,6 +687,61 @@ class CartPanel(ctk.CTkFrame):
 
     def update_tasa(self, tasa: float):
         self._refresh_totals(tasa)
+
+    # ------------------------------------------------------------------
+    # Autocomplete de clientes
+    # ------------------------------------------------------------------
+
+    def _on_buscar_cliente(self, termino: str, campo: str):
+        """Busca clientes y muestra sugerencias flotantes debajo del entry."""
+        t = termino.strip()
+        if not t or t == "N/A" or len(t) < 2:
+            self._hide_suggestions()
+            return
+        resultados = self._clientes_dao.buscar(t, limite=8)
+        if not resultados:
+            self._hide_suggestions()
+            return
+        self._show_suggestions(resultados)
+
+    def _show_suggestions(self, clientes: list):
+        """Muestra un panel flotante con las sugerencias de clientes."""
+        self._hide_suggestions()
+        # Calcular posicion
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.overrideredirect(True)
+        win.configure(bg=C["card"])
+        win.attributes("-topmost", True)
+        self._suggest_win = win
+
+        x = self._entry_cedula.winfo_rootx()
+        y = self._entry_cedula.winfo_rooty() + self._entry_cedula.winfo_height() + 2
+        win.geometry(f"+{x}+{y}")
+
+        for i, cl in enumerate(clientes):
+            bg = C["input"] if i % 2 == 0 else C["card"]
+            btn = tk.Button(
+                win,
+                text=f"  {cl['cedula']}   {cl['nombre']}",
+                bg=bg, fg=C["text"], relief="flat",
+                font=(FONT, 11), anchor="w", cursor="hand2",
+                activebackground=C["row_sel"], activeforeground=C["text"],
+                command=lambda c=cl: self._seleccionar_cliente(c),
+            )
+            btn.pack(fill="x", padx=0, pady=0)
+
+    def _hide_suggestions(self):
+        if self._suggest_win and self._suggest_win.winfo_exists():
+            self._suggest_win.destroy()
+        self._suggest_win = None
+
+    def _seleccionar_cliente(self, cliente: dict):
+        """Rellena los campos de cliente al seleccionar una sugerencia."""
+        self._entry_cedula.delete(0, "end")
+        self._entry_cedula.insert(0, cliente["cedula"])
+        self._entry_nombre.delete(0, "end")
+        self._entry_nombre.insert(0, cliente["nombre"])
+        self._hide_suggestions()
 
     # ------------------------------------------------------------------
     # Lógica interna
@@ -612,7 +780,8 @@ class CartPanel(ctk.CTkFrame):
 
     def _on_tree_select(self, _event=None):
         sel = self._tree.selection()
-        if not sel: return
+        if not sel:
+            return
         try:
             idx = int(sel[0])
             item = self._items[idx]
@@ -622,7 +791,13 @@ class CartPanel(ctk.CTkFrame):
             pass
 
     def _on_editar_precio_inline(self, event=None):
-        """Doble-clic en una fila abre un mini-popup para editar el precio del item."""
+        """
+        Doble-clic en una celda del carrito:
+          #1 (nombre) / #2 (sku)  -> quitar item
+          #3 (precio) / #5 (sub)  -> editar precio unitario
+          #4 (qty)                -> editar cantidad
+        Un Entry nativo aparece flotante sobre la celda para edición directa.
+        """
         sel = self._tree.selection()
         if not sel:
             return
@@ -630,76 +805,104 @@ class CartPanel(ctk.CTkFrame):
         if idx < 0 or idx >= len(self._items):
             return
         item = self._items[idx]
-
         col = self._tree.identify_column(event.x) if event else ""
-        # Si no hizo clic en la columna #3 (Precio), quitar item en vez de editar precio
-        if col != "#3":
-            nombre = item["nombre"]
-            if messagebox.askyesno("Quitar item", f"¿Quitar «{nombre}» del carrito?"):
-                self._items.pop(idx)
-                self._refresh_table()
+
+        # ── Quitar item ──────────────────────────────
+        if col in ("", "#1", "#2"):
+            self._items.pop(idx)
+            self._refresh_table()
             return
 
-        # Abrir popup de edición de precio
-        win = ctk.CTkToplevel(self.winfo_toplevel())
-        win.title("Editar Precio")
-        win.geometry("320x180")
-        win.resizable(False, False)
-        win.transient(self.winfo_toplevel())
-        win.grab_set()
-        win.focus_force()
+        is_qty   = col == "#4"
+        is_total = col == "#5"
 
-        # Centrar
-        win.update_idletasks()
-        px = self.winfo_toplevel().winfo_rootx()
-        py = self.winfo_toplevel().winfo_rooty()
-        pw = self.winfo_toplevel().winfo_width()
-        ph = self.winfo_toplevel().winfo_height()
-        win.geometry(f"320x180+{px+(pw-320)//2}+{py+(ph-180)//2}")
+        # ── Obtener bbox de la celda para posicionar el Entry ─────────
+        bbox = self._tree.bbox(sel[0], col)
+        if not bbox:
+            return
+        cell_x, cell_y, cell_w, cell_h = bbox
+        tree_rx = self._tree.winfo_rootx()
+        tree_ry = self._tree.winfo_rooty()
 
-        f = ctk.CTkFrame(win, fg_color=C["card"])
-        f.pack(fill="both", expand=True, padx=16, pady=16)
+        # ── Entry flotante nativo ─────────────────────────────────────
+        if is_qty:
+            init_val = str(item["qty"])
+            txt_color = C["success"]
+        elif is_total:
+            init_val = f"{item['precio_venta'] * item['qty']:.2f}"
+            txt_color = C["gold"]
+        else:  # precio unitario
+            init_val = f"{item['precio_venta']:.2f}"
+            txt_color = C["gold"]
 
-        ctk.CTkLabel(f, text=f"✏️  {item['nombre']}",
-                     font=(FONT, 13, "bold"), text_color=C["text"]).pack(anchor="w", pady=(0, 8))
-        ctk.CTkLabel(f, text=f"Precio original: ${item['precio_venta']:.2f}  |  Cantidad: {item['qty']}",
-                     font=(FONT, 10), text_color=C["muted"]).pack(anchor="w", pady=(0, 10))
+        popup = tk.Toplevel(self.winfo_toplevel())
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        ew = max(cell_w, 80)
+        popup.geometry(f"{ew}x{cell_h}+{tree_rx + cell_x}+{tree_ry + cell_y}")
+        popup.configure(bg=C["input"])
 
-        row_e = ctk.CTkFrame(f, fg_color="transparent")
-        row_e.pack(fill="x")
-        ctk.CTkLabel(row_e, text="Nuevo precio:", font=(FONT, 12), text_color=C["muted"]).pack(side="left")
-        en = ctk.CTkEntry(row_e, width=100, height=34, font=(FONT, 14, "bold"),
-                          fg_color=C["input"], border_color=C["border"],
-                          text_color=C["gold"], corner_radius=8, justify="center")
-        en.insert(0, f"{item['precio_venta']:.2f}")
-        en.pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(row_e, text="USD", font=(FONT, 11), text_color=C["muted"]).pack(side="left", padx=(4, 0))
+        var = tk.StringVar(value=init_val)
+        entry = tk.Entry(popup, textvariable=var, justify="center",
+                         font=(FONT, 12, "bold"),
+                         bg=C["input"], fg=txt_color,
+                         insertbackground=txt_color,
+                         relief="flat", bd=2,
+                         highlightthickness=2,
+                         highlightcolor=C["accent"],
+                         highlightbackground=C["accent"])
+        entry.pack(fill="both", expand=True)
+        entry.select_range(0, "end")
+        entry.focus_force()
 
-        lbl_err = ctk.CTkLabel(f, text="", font=(FONT, 10), text_color=C["danger"])
-        lbl_err.pack(pady=(4, 0))
+        tasa = self._get_tasa()
 
-        def _aplicar():
-            try:
-                nuevo = float(en.get().strip().replace(",", "."))
-                if nuevo < 0: raise ValueError
-            except ValueError:
-                lbl_err.configure(text="⚠️ Precio inválido")
-                return
-            item["precio_venta"] = nuevo
-            win.destroy()
+        def _commit(raw: str):
+            raw = raw.strip()
+            is_pct = False
+            pct_val = 0.0
+            
+            if not is_qty and raw.endswith("%"):
+                is_pct = True
+                try:
+                    pct_val = float(raw[:-1].strip().replace(",", "."))
+                    if pct_val < 0 or pct_val > 100:
+                        raise ValueError
+                except ValueError:
+                    popup.destroy()
+                    return
+            else:
+                try:
+                    val = float(raw.replace(",", "."))
+                    if val < 0:
+                        raise ValueError
+                except ValueError:
+                    popup.destroy()
+                    return
+
+            if is_qty:
+                new_qty = max(1, int(val))
+                item["qty"] = new_qty
+            elif is_pct:
+                base = item.get("precio_base", item["precio_venta"])
+                item["precio_venta"] = base * (1 - (pct_val / 100))
+            elif is_total:
+                # total ÷ qty = precio unitario
+                unit = val / item["qty"] if item["qty"] > 0 else 0
+                item["precio_venta"] = unit
+            else:
+                item["precio_venta"] = val
+                
+            popup.destroy()
             self._refresh_table()
             try:
                 self._tree.selection_set(str(idx))
             except Exception:
                 pass
 
-        en.bind("<Return>", lambda _: _aplicar())
-        ctk.CTkButton(f, text="✅ Aplicar", height=34, font=(FONT, 12, "bold"),
-                      fg_color=C["accent"], hover_color=C["accent_h"],
-                      text_color="#fff", corner_radius=8,
-                      command=_aplicar).pack(fill="x", pady=(8, 0))
-        en.focus()
-        en.select_range(0, "end")
+        entry.bind("<Return>",  lambda _: _commit(var.get()))
+        entry.bind("<Escape>",  lambda _: popup.destroy())
+        entry.bind("<FocusOut>", lambda _: _commit(var.get()))
 
     def _on_vaciar(self):
         if not self._items:
@@ -714,7 +917,7 @@ class CartPanel(ctk.CTkFrame):
     def _on_abrir_fiado(self):
         self._fiado_nombre.delete(0, "end")
         nombre_cliente = self._entry_nombre.get().strip()
-        if nombre_cliente:
+        if nombre_cliente and nombre_cliente != "N/A":
             self._fiado_nombre.insert(0, nombre_cliente)
         self._fiado_tel.delete(0, "end")
         self._fiado_fecha.delete(0, "end")
@@ -766,9 +969,11 @@ class CartPanel(ctk.CTkFrame):
         self._on_cerrar_fiado()
         self.clear()
         self._entry_nombre.delete(0, "end")
+        self._entry_nombre.insert(0, "N/A")
         self._entry_cedula.delete(0, "end")
+        self._entry_cedula.insert(0, "N/A")
         messagebox.showinfo(
-            "Fiado registrado",
+            "Crédito registrado",
             f"✅ Deuda de {nombre_deudor} registrada.\n"
             f"Monto: ${total_usd:,.2f} USD  |  Fecha límite: {fecha_limite}",
         )
@@ -844,38 +1049,16 @@ class CartPanel(ctk.CTkFrame):
                                placeholder_text="0")
             en.grid(row=0, column=1, padx=4, pady=8, sticky="ew")
 
-            # Switch de moneda (botón que alterna USD / Bs)
-            moneda_var = ctk.StringVar(value="Bs")
-
-            def _toggle(mv=moneda_var, btn_ref=[None]):
-                if mv.get() == "USD":
-                    mv.set("Bs")
-                    btn_ref[0].configure(text="Bs.", fg_color="#3a2a00", text_color=C["gold"])
-                else:
-                    mv.set("USD")
-                    btn_ref[0].configure(text="USD", fg_color="#1a3020", text_color=C["success"])
-
-            btn_mon = ctk.CTkButton(
-                row, text="Bs.", width=52, height=34,
-                font=(FONT, 11, "bold"),
-                fg_color="#3a2a00", hover_color="#5a3a00",
-                text_color=C["gold"], corner_radius=8,
-                command=_toggle,
-            )
-            btn_mon.grid(row=0, column=2, padx=(4, 12), pady=8)
-            # Inyectar referencia propia al closure
-            _toggle.__defaults__ = (moneda_var, [btn_mon])
-            # Hacer que _toggle ya sepa su btn_ref sin re-crear lambda
-            def _make_toggle(mv, btn):
-                def _t():
-                    if mv.get() == "USD":
-                        mv.set("Bs")
-                        btn.configure(text="Bs.", fg_color="#3a2a00", text_color=C["gold"])
-                    else:
-                        mv.set("USD")
-                        btn.configure(text="USD", fg_color="#1a3020", text_color=C["success"])
-                return _t
-            btn_mon.configure(command=_make_toggle(moneda_var, btn_mon))
+            if metodo == "Divisa":
+                moneda_var = ctk.StringVar(value="USD")
+                ctk.CTkLabel(row, text="USD", width=52, anchor="center",
+                             font=(FONT, 11, "bold"), text_color=C["success"]).grid(
+                    row=0, column=2, padx=(4, 12), pady=8)
+            else:
+                moneda_var = ctk.StringVar(value="Bs")
+                ctk.CTkLabel(row, text="Bs.", width=52, anchor="center",
+                             font=(FONT, 11, "bold"), text_color=C["gold"]).grid(
+                    row=0, column=2, padx=(4, 12), pady=8)
 
             metodo_data[metodo] = {"moneda": moneda_var, "entry": en}
 
@@ -904,8 +1087,11 @@ class CartPanel(ctk.CTkFrame):
                     moneda = data["moneda"].get()  # 'USD' o 'Bs'
                     if moneda == "USD":
                         usd_val = val
-                        bs_val  = val * tasa
-                        pagos.append(f"{m}: ${usd_val:,.2f} / Bs.{bs_val:,.0f}")
+                        if m == "Divisa":
+                            pagos.append(f"{m}: ${usd_val:,.2f}")
+                        else:
+                            bs_val  = val * tasa
+                            pagos.append(f"{m}: ${usd_val:,.2f} / Bs.{bs_val:,.0f}")
                     else:
                         bs_val  = val
                         usd_val = val / tasa if tasa > 0 else 0
@@ -927,10 +1113,10 @@ class CartPanel(ctk.CTkFrame):
             command=_procesar,
         ).pack(fill="x", pady=(10, 0))
 
-        # Tamaño dinámico
+        # Tamaño dinámico + seguridad
         win.update_idletasks()
         w = 430
-        h = win.winfo_reqheight() + 50
+        h = 440  # Tamaño fijo para evitar cortes
         px = self.winfo_toplevel().winfo_rootx()
         py = self.winfo_toplevel().winfo_rooty()
         pw = self.winfo_toplevel().winfo_width()
@@ -938,7 +1124,7 @@ class CartPanel(ctk.CTkFrame):
         win.geometry(f"{w}x{h}+{px+(pw-w)//2}+{py+(ph-h)//2}")
 
     def _ejecutar_venta(self, metodo_pago_str: str):
-        """Procesa la venta con el string de método(s) de pago ya validado."""
+        """Procesa la venta con el string de metodo(s) de pago ya validado."""
         nombre, cedula = self.get_cliente_info()
         total_usd = self.get_total_usd()
         tasa      = self._get_tasa()
@@ -959,6 +1145,13 @@ class CartPanel(ctk.CTkFrame):
         except Exception as e:
             messagebox.showerror("Error de base de datos", str(e))
             return
+
+        # Guardar / actualizar cliente en la tabla clientes para futuro autocompletado
+        try:
+            if cedula and cedula not in ("N/A", "S/C"):
+                self._clientes_dao.upsert(cedula, nombre)
+        except Exception:
+            pass
 
         self.clear()
         self._entry_nombre.delete(0, "end")
@@ -1023,11 +1216,30 @@ class PuntoDeVentaWindow(ctk.CTkToplevel):
         self._search.mostrar_info_id(p_id)
 
     def _on_add_to_cart(self, record: dict, qty: int):
-        if record["cantidad"] <= 0:
+        if not record.get("is_combo") and record.get("cantidad", 0) <= 0:
             messagebox.showwarning("Sin stock",
                                    f"«{record['nombre']}» no tiene unidades disponibles en inventario.")
             return
-        self._cart.agregar(record, qty)
+            
+        if record.get("is_combo"):
+            from database.inventario_db import CombosDAO
+            detalles = CombosDAO().obtener_detalle_completo(record["id"])
+            if detalles:
+                p_base = detalles.get("precio_base", 1.0)
+                if p_base <= 0: p_base = 1.0
+                factor = record.get("precio_final", 1.0) / p_base
+                for c_item in detalles["items"]:
+                    prod_record = {
+                        "id": c_item["producto_id"],
+                        "sku": c_item.get("sku", ""),
+                        "nombre": f"{c_item['nombre']} ({detalles['nombre']})",
+                        "precio_venta": c_item["precio_venta"] * factor,
+                        "precio_base": c_item["precio_venta"], # original product price
+                        "is_combo": False,
+                    }
+                    self._cart.agregar(prod_record, c_item["cantidad"] * qty)
+        else:
+            self._cart.agregar(record, qty)
 
     def _on_tasa_changed(self, nueva_tasa: float):
         self._cart.update_tasa(nueva_tasa)
