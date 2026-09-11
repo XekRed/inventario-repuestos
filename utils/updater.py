@@ -113,8 +113,29 @@ def check_for_updates() -> dict:
 
 
 def do_git_pull() -> tuple:
-    """Ejecuta git pull. Retorna (éxito, mensaje)."""
+    """Ejecuta git pull forzando los cambios remotos y preservando config."""
+    import shutil
+    import os
+    
+    tasa_path = APP_DIR / "config" / "tasa.json"
+    theme_path = APP_DIR / "config" / "theme.json"
+    tasa_backup = APP_DIR / "config" / "tasa_bak.json"
+    theme_backup = APP_DIR / "config" / "theme_bak.json"
+    
+    if tasa_path.exists(): shutil.copy(tasa_path, tasa_backup)
+    if theme_path.exists(): shutil.copy(theme_path, theme_backup)
+    
+    _run_git("fetch", "origin", "master", timeout=60)
+    _run_git("reset", "--hard", "origin/master", timeout=60)
     ok, out, err = _run_git("pull", "--ff-only", timeout=60)
+    
+    if tasa_backup.exists():
+        shutil.copy(tasa_backup, tasa_path)
+        os.remove(tasa_backup)
+    if theme_backup.exists():
+        shutil.copy(theme_backup, theme_path)
+        os.remove(theme_backup)
+        
     if ok:
         return True, out or "Actualización completada correctamente."
     return False, err or "Error desconocido al actualizar."
