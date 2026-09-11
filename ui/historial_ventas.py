@@ -259,7 +259,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         
         self._btn_factura = ctk.CTkButton(
             right, text="Generar Factura", height=32,
-            font=(FONT, 12, "bold"), fg_color=C["accent"], hover_color=C["accent_hover"],
+            font=(FONT, 12, "bold"), fg_color=C["accent"], hover_color=_AC.get("accent_hover", C["accent"]),
             command=self._generar_factura_seleccionada, state="disabled"
         )
         self._btn_factura.grid(row=4, column=0, padx=14, pady=(0, 14), sticky="e")
