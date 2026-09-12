@@ -116,7 +116,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _build(self):
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
 
@@ -158,12 +158,41 @@ class HistorialVentasWindow(ctk.CTkToplevel):
             command=self._generar_reporte,
         ).grid(row=0, column=3, sticky="e")
 
+        # ── Barra de búsqueda ──────────────────────────────────────────
+        search_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=10)
+        search_bar.grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 4), sticky="ew")
+        search_bar.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(search_bar, text="🔍", font=(FONT, 15),
+                     text_color=C["muted"]).grid(row=0, column=0, padx=(14, 4), pady=8)
+
+        self._busq_var = ctk.StringVar()
+        self._busq_var.trace_add("write", lambda *_: self._cargar_ventas())
+        ctk.CTkEntry(
+            search_bar, textvariable=self._busq_var,
+            placeholder_text="Buscar por cliente, cédula o producto vendido...",
+            font=(FONT, 12), fg_color=C["input"], border_color=C["border"],
+            text_color=C["text"], height=34, corner_radius=8,
+        ).grid(row=0, column=1, padx=(0, 8), pady=8, sticky="ew")
+
+        ctk.CTkButton(
+            search_bar, text="📊 Gráficas", width=110, height=34, font=(FONT, 11, "bold"),
+            fg_color=C["accent"], hover_color=C["border"], text_color="#ffffff",
+            corner_radius=8, command=self._abrir_graficas,
+        ).grid(row=0, column=2, padx=(0, 4), pady=8)
+
+        ctk.CTkButton(
+            search_bar, text="📈 Rentabilidad", width=130, height=34, font=(FONT, 11, "bold"),
+            fg_color=C["success"], hover_color=C["border"], text_color="#ffffff",
+            corner_radius=8, command=self._abrir_rentabilidad,
+        ).grid(row=0, column=3, padx=(0, 14), pady=8)
+
         # ── Barra de filtro por fecha ─────────────────────────────────
         filter_bar = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=10)
-        filter_bar.grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="ew")
+        filter_bar.grid(row=2, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="ew")
         filter_bar.grid_columnconfigure(5, weight=1)
 
-        ctk.CTkLabel(filter_bar, text="📅 Filtrar:", font=(FONT, 11, "bold"),
+        ctk.CTkLabel(filter_bar, text="📅 Período:", font=(FONT, 11, "bold"),
                      text_color=C["muted"]).grid(row=0, column=0, padx=(14, 8), pady=10)
 
         FILTROS = [
@@ -218,7 +247,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
 
         # ── Panel izquierdo: lista de ventas ─────────────────────────
         left = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=12)
-        left.grid(row=2, column=0, padx=(16, 6), pady=(0, 16), sticky="nsew")
+        left.grid(row=3, column=0, padx=(16, 6), pady=(0, 16), sticky="nsew")
         left.grid_rowconfigure(1, weight=1)
         left.grid_columnconfigure(0, weight=1)
 
@@ -237,7 +266,7 @@ class HistorialVentasWindow(ctk.CTkToplevel):
 
         # ── Panel derecho: detalle de la venta seleccionada ──────────
         right = ctk.CTkFrame(self, fg_color=C["card"], corner_radius=12)
-        right.grid(row=2, column=1, padx=(0, 16), pady=(0, 16), sticky="nsew")
+        right.grid(row=3, column=1, padx=(0, 16), pady=(0, 16), sticky="nsew")
         right.grid_rowconfigure(2, weight=1)
         right.grid_columnconfigure(0, weight=1)
 
@@ -390,12 +419,36 @@ class HistorialVentasWindow(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _cargar_ventas(self):
-        """Carga (o recarga) la tabla principal aplicando el filtro activo."""
+        """Carga (o recarga) la tabla principal aplicando filtro de fecha y búsqueda."""
         for row in self._ventas_tree.get_children():
             self._ventas_tree.delete(row)
 
         ventas_todas = self._dao.listar_ventas()
         ventas = [v for v in ventas_todas if self._venta_pasa_filtro(v.get("fecha", ""))]
+
+        # Filtro de texto: por cliente, cédula o producto vendido
+        termino = getattr(self, "_busq_var", None)
+        termino = termino.get().strip().lower() if termino else ""
+        if termino:
+            ventas_filtradas = []
+            for v in ventas:
+                hay_match = (
+                    termino in (v.get("nombre_cliente") or "").lower()
+                    or termino in (v.get("cedula_cliente") or "").lower()
+                )
+                if not hay_match:
+                    # Buscar en detalles del producto
+                    try:
+                        detalles = self._dao.obtener_detalles_venta(v["id"])
+                        hay_match = any(
+                            termino in (d.get("nombre_producto") or "").lower()
+                            for d in detalles
+                        )
+                    except Exception:
+                        pass
+                if hay_match:
+                    ventas_filtradas.append(v)
+            ventas = ventas_filtradas
         
         last_date = None
         sep_counter = 0
@@ -501,6 +554,17 @@ class HistorialVentasWindow(ctk.CTkToplevel):
         self._lbl_total_detalle.configure(text="")
         self._btn_factura.configure(state="disabled")
 
+
+
+    def _abrir_graficas(self):
+        """Abre ventana con gráficas de ventas diarias/semanales/mensuales."""
+        from ui.graficas_ventas import GraficasVentasWindow
+        GraficasVentasWindow(self, self._dao, self._tasa_actual)
+
+    def _abrir_rentabilidad(self):
+        """Abre ventana con estadísticas de rentabilidad por producto."""
+        from ui.estadisticas_rentabilidad import EstadisticasRentabilidadWindow
+        EstadisticasRentabilidadWindow(self, self._dao)
 
     def _generar_factura_seleccionada(self):
         sel = self._ventas_tree.selection()

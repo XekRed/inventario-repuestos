@@ -432,10 +432,45 @@ class InventarioPage(ctk.CTkFrame):
         self._search_bar = SearchBar(self._frame_inv, on_search_callback=self._on_search)
         self._search_bar.grid(
             row=0, column=0, columnspan=span,
-            padx=16, pady=(12, 4), sticky="ew",
+            padx=16, pady=(12, 2), sticky="ew",
         )
 
+        # ── Filtro por Rubro ──────────────────────────────────────────
+        from database.inventario_db import AreasDAO
+        self._areas_dao_page = AreasDAO()
+        self._rubro_var = ctk.StringVar(value="Todos los rubros")
+
+        rubro_bar = ctk.CTkFrame(self._frame_inv, fg_color="transparent")
+        rubro_bar.grid(row=1, column=0, columnspan=span, padx=16, pady=(0, 4), sticky="ew")
+        rubro_bar.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(rubro_bar, text="📂 Rubro:", font=(F, 12, "bold"),
+                     text_color=COLORS["text_muted"]).grid(row=0, column=0, padx=(0, 8))
+
+        rubro_values = self._get_rubro_values()
+        self._rubro_filter_combo = ctk.CTkOptionMenu(
+            rubro_bar,
+            variable=self._rubro_var,
+            values=rubro_values,
+            font=(F, 12),
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            corner_radius=8,
+            command=lambda _: self._on_rubro_filter_change(),
+        )
+        self._rubro_filter_combo.grid(row=0, column=1, padx=(0, 8), sticky="w")
+
+        ctk.CTkButton(
+            rubro_bar, text="↺ Todos", width=80, height=28, font=(F, 11),
+            fg_color=COLORS["bg_input"], hover_color=COLORS["border"],
+            text_color=COLORS["text_muted"], corner_radius=8,
+            command=self._reset_rubro_filter,
+        ).grid(row=0, column=2, padx=(0, 4))
+
         # ── Formulario (solo Admin) ───────────────────────────────────
+        self._frame_inv.grid_rowconfigure(2, weight=1)
         if self._es_admin:
             self._form = FormPanel(
                 self._frame_inv,
@@ -443,7 +478,7 @@ class InventarioPage(ctk.CTkFrame):
                 refresh_callback=self._load_inventory,
             )
             self._form.grid(
-                row=1, column=0,
+                row=2, column=0,
                 padx=(16, 0), pady=(4, 16), sticky="nsew",
             )
             self._form.configure(width=300)
@@ -452,7 +487,7 @@ class InventarioPage(ctk.CTkFrame):
         col = 1 if self._es_admin else 0
         self._table = InventoryTable(self._frame_inv)
         self._table.grid(
-            row=1, column=col,
+            row=2, column=col,
             padx=(8 if self._es_admin else 16, 16),
             pady=(4, 16), sticky="nsew",
         )
@@ -461,6 +496,29 @@ class InventarioPage(ctk.CTkFrame):
 
         # ── Botones de acción ─────────────────────────────────────────
         self._build_action_buttons()
+
+    def _get_rubro_values(self) -> list:
+        areas = self._areas_dao_page.listar()
+        return ["Todos los rubros"] + [a["nombre"] for a in areas]
+
+    def _on_rubro_filter_change(self):
+        self._apply_combined_filter()
+
+    def _reset_rubro_filter(self):
+        self._rubro_var.set("Todos los rubros")
+        self._apply_combined_filter()
+
+    def _apply_combined_filter(self):
+        termino = self._search_bar._var.get().strip().lower()
+        rubro = self._rubro_var.get()
+        rows = self._all_rows
+        if rubro and rubro != "Todos los rubros":
+            rows = [r for r in rows if (r.get("area_nombre") or "") == rubro]
+        if termino:
+            rows = [r for r in rows
+                    if termino in r["nombre"].lower()
+                    or termino in (r["sku"] or "").lower()]
+        self._table.refresh(rows)
 
     def _build_action_buttons(self):
         btn_bar = ctk.CTkFrame(self._table, fg_color="transparent")
@@ -519,16 +577,7 @@ class InventarioPage(ctk.CTkFrame):
             messagebox.showerror("Error de base de datos", str(e))
 
     def _on_search(self, termino: str):
-        termino = termino.strip().lower()
-        if not termino:
-            self._table.refresh(self._all_rows)
-            return
-        filtrados = [
-            r for r in self._all_rows
-            if termino in r["nombre"].lower()
-            or termino in (r["sku"] or "").lower()
-        ]
-        self._table.refresh(filtrados)
+        self._apply_combined_filter()
 
     def _on_row_selected(self, _event=None):
         pass
@@ -554,26 +603,52 @@ class InventarioPage(ctk.CTkFrame):
     def _on_edit(self):
         record_id = self._table.get_selected_id()
         if record_id is None:
+            messagebox.showinfo("Editar", "Selecciona un producto de la lista primero.")
             return
         record = self._dao.obtener_por_id(record_id)
         if record is None:
+            messagebox.showerror("Error", "No se pudo obtener el producto seleccionado.")
             return
-        self._form.load_data(record)
-        self._form.set_edit_mode(record_id)
+        try:
+            self._form.load_data(record)
+            self._form.set_edit_mode(record_id)
+        except Exception as e:
+            messagebox.showerror("Error al cargar", f"No se pudo cargar el producto:\n{e}")
 
     def _on_delete(self):
         if not self._es_admin:
             return
         record_id = self._table.get_selected_id()
         if record_id is None:
+            messagebox.showinfo("Eliminar", "Selecciona un producto de la lista primero.")
+            return
+        record = self._dao.obtener_por_id(record_id)
+        nombre = record.get("nombre", f"ID {record_id}") if record else f"ID {record_id}"
+        if not messagebox.askyesno("Confirmar eliminación",
+                                    f"¿Eliminar '{nombre}'? Esta acción no se puede deshacer."):
             return
         try:
             self._dao.eliminar(record_id)
-            if self._form:
+            if hasattr(self, '_form') and self._form:
                 self._form.clear()
             self._load_inventory()
-        except Exception:
-            pass
+        except Exception as e:
+            messagebox.showerror("Error al eliminar", str(e))
+
+    def _on_agregar_similar(self):
+        """Carga un producto como base para crear uno similar."""
+        record_id = self._table.get_selected_id()
+        if record_id is None:
+            messagebox.showinfo("Similar", "Selecciona un producto de la lista primero.")
+            return
+        record = self._dao.obtener_por_id(record_id)
+        if record is None:
+            messagebox.showerror("Error", "No se pudo obtener el producto.")
+            return
+        try:
+            self._form.load_similar(record)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo cargar similar:\n{e}")
 
     def _on_abastecer(self):
         record_id = self._table.get_selected_id()
@@ -1599,7 +1674,7 @@ class DashboardApp(ctk.CTk):
                 anchor="w",
                 fg_color=COLORS["sidebar_btn"] if not is_external else "#1a2a1a",
                 hover_color=COLORS["sidebar_active"],
-                text_color=COLORS["text_primary"] if not is_external else COLORS["success"],
+                text_color=COLORS.get("sidebar_text", "#e0e0e0") if not is_external else COLORS["success"],
                 corner_radius=10,
                 command=lambda k=key: self._navigate(k),
             )
@@ -1667,7 +1742,7 @@ class DashboardApp(ctk.CTk):
                 btn.configure(fg_color=COLORS["sidebar_active"], text_color=COLORS["sidebar_active_text"],
                               font=(F, 13, "bold"))
             else:
-                btn.configure(fg_color=COLORS["sidebar_btn"], text_color=COLORS["text_primary"],
+                btn.configure(fg_color=COLORS["sidebar_btn"], text_color=COLORS.get("sidebar_text", "#e0e0e0"),
                               font=(F, 13))
 
         # Ocultar página actual y mostrar la nueva

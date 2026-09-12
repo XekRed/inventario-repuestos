@@ -26,18 +26,27 @@ class FacturaPDF(FPDF):
         self.logo_ruta = logo_ruta
 
     def header(self):
-        # Logo
-        if self.logo_ruta and Path(self.logo_ruta).exists():
-            try:
-                self.image(self.logo_ruta, x=15, y=15, h=20)
-            except Exception:
-                pass
-        
+        # Logo - resolve relative paths from project root
+        logo_ok = False
+        if self.logo_ruta:
+            logo_path = Path(self.logo_ruta)
+            if not logo_path.is_absolute():
+                logo_path = ROOT_DIR / logo_path
+            if logo_path.exists():
+                try:
+                    self.image(str(logo_path), x=15, y=12, h=24)
+                    logo_ok = True
+                except Exception:
+                    pass
+
         # Textos de empresa alineados a la derecha
+        # If logo was placed on left, set y to align with it
+        if logo_ok:
+            self.set_y(12)
         self.set_font("Helvetica", "B", 18)
         self.set_text_color(0, 0, 0)
-        self.cell(0, 8, self.empresa_nombre, new_x=XPos.RIGHT, new_y=YPos.NEXT, align="R")
-        
+        self.cell(0, 9, self.empresa_nombre, new_x=XPos.RIGHT, new_y=YPos.NEXT, align="R")
+
         self.set_font("Helvetica", "", 10)
         if self.empresa_dir:
             self.cell(0, 5, self.empresa_dir, new_x=XPos.RIGHT, new_y=YPos.NEXT, align="R")
@@ -45,8 +54,12 @@ class FacturaPDF(FPDF):
             self.cell(0, 5, f"Telf: {self.empresa_tel}", new_x=XPos.RIGHT, new_y=YPos.NEXT, align="R")
         if self.empresa_rif:
             self.cell(0, 5, f"R.I.F: {self.empresa_rif}", new_x=XPos.RIGHT, new_y=YPos.NEXT, align="R")
-            
-        self.ln(10)
+
+        # Ensure we are below the logo height
+        if logo_ok and self.get_y() < 38:
+            self.set_y(38)
+        self.ln(6)
+
 
 def generar_factura_venta(venta: dict, detalles: list, empresa_data: dict, tasa_usd: float) -> str:
     """
