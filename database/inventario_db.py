@@ -85,6 +85,7 @@ def inicializar_db() -> None:
         ubicacion       TEXT,
         descripcion     TEXT,
         imagen_ruta     TEXT,
+        activo          INTEGER NOT NULL DEFAULT 1,
         creado_en       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
         actualizado_en  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
     );
@@ -384,6 +385,7 @@ class InventarioDAO:
             SELECT i.*, a.nombre as area_nombre 
             FROM inventario i
             LEFT JOIN areas a ON i.area_id = a.id
+            WHERE i.activo = 1
             ORDER BY i.{orden_por}
         """
         try:
@@ -407,7 +409,7 @@ class InventarioDAO:
             sql = """
                 SELECT id, nombre, sku, cantidad, stock_minimo
                 FROM   inventario
-                WHERE  cantidad < ?
+                WHERE  cantidad < ? AND activo = 1
                 ORDER  BY cantidad ASC
             """
             params = (limite,)
@@ -415,7 +417,7 @@ class InventarioDAO:
             sql = """
                 SELECT id, nombre, sku, cantidad, stock_minimo
                 FROM   inventario
-                WHERE  cantidad < stock_minimo
+                WHERE  cantidad < stock_minimo AND activo = 1
                 ORDER  BY cantidad ASC
             """
             params = ()
@@ -445,8 +447,7 @@ class InventarioDAO:
         SELECT i.*, a.nombre as area_nombre
         FROM inventario i
         LEFT JOIN areas a ON i.area_id = a.id
-        WHERE  i.sku = ?
-           OR  i.nombre LIKE ?
+        WHERE  (i.sku = ? OR i.nombre LIKE ?) AND i.activo = 1
         ORDER BY i.nombre
         """
         patron = f"%{termino}%"
@@ -567,6 +568,13 @@ class InventarioDAO:
                         "Intento de eliminar ID %s que no existe.", repuesto_id
                     )
                 return eliminado
+        except sqlite3.IntegrityError:
+            # Foreign key constraint failed. Do a soft delete instead.
+            logger.info("Soft-deleting repuesto ID %s due to foreign key constraints.", repuesto_id)
+            sql_soft = "UPDATE inventario SET activo = 0 WHERE id = ?"
+            with get_connection() as conn:
+                cursor = conn.execute(sql_soft, (repuesto_id,))
+                return cursor.rowcount > 0
         except sqlite3.Error as e:
             logger.error("Error al eliminar repuesto ID %s: %s", repuesto_id, e)
             raise
