@@ -378,20 +378,17 @@ class ProductSearch(ctk.CTkFrame):
     def _agregar_seleccionado(self):
         sel = self._listbox.curselection()
         if not sel:
-            messagebox.showwarning("Sin selección", "Selecciona un producto o combo de la lista primero.")
-            return
+            return  # sin selección: ignorar silenciosamente
         r = self._resultados[sel[0]]
         try:
             qty = int(self._qty_var.get())
             if qty <= 0:
-                raise ValueError
+                qty = 1
         except ValueError:
-            messagebox.showerror("Error", "La cantidad debe ser mayor a 0")
-            return
-            
+            qty = 1
+
         if not r.get("is_combo") and r["cantidad"] <= 0:
-            messagebox.showwarning("Sin stock", "No hay stock de este producto.")
-            return
+            return  # sin stock: ignorar silenciosamente
 
         self._on_add(r, qty)
         self._qty_var.set("1")
@@ -642,9 +639,15 @@ class CartPanel(ctk.CTkFrame):
     def agregar(self, record: dict, qty: int):
         # Combo o producto normal
         is_combo = record.get("is_combo", False)
+        stock_max = record.get("cantidad", 99999) if not is_combo else 99999
+
         for item in self._items:
             if item["id"] == record["id"] and item.get("is_combo") == is_combo:
-                item["qty"] += qty
+                nueva_qty = item["qty"] + qty
+                # Limitar al stock disponible silenciosamente
+                if not is_combo:
+                    nueva_qty = min(nueva_qty, stock_max)
+                item["qty"] = nueva_qty
                 self._refresh_table()
                 return
         

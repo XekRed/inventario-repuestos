@@ -435,42 +435,13 @@ class InventarioPage(ctk.CTkFrame):
             padx=16, pady=(12, 2), sticky="ew",
         )
 
-        # ── Filtro por Rubro ──────────────────────────────────────────
+        # ── Inicializar filtro de rubro ───────────────────────────────
         from database.inventario_db import AreasDAO
         self._areas_dao_page = AreasDAO()
         self._rubro_var = ctk.StringVar(value="Todos los rubros")
 
-        rubro_bar = ctk.CTkFrame(self._frame_inv, fg_color="transparent")
-        rubro_bar.grid(row=1, column=0, columnspan=span, padx=16, pady=(0, 4), sticky="ew")
-        rubro_bar.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(rubro_bar, text="📂 Rubro:", font=(F, 12, "bold"),
-                     text_color=COLORS["text_muted"]).grid(row=0, column=0, padx=(0, 8))
-
-        rubro_values = self._get_rubro_values()
-        self._rubro_filter_combo = ctk.CTkOptionMenu(
-            rubro_bar,
-            variable=self._rubro_var,
-            values=rubro_values,
-            font=(F, 12),
-            fg_color=COLORS["bg_input"],
-            text_color=COLORS["text_primary"],
-            button_color=COLORS["accent"],
-            button_hover_color=COLORS["accent_hover"],
-            corner_radius=8,
-            command=lambda _: self._on_rubro_filter_change(),
-        )
-        self._rubro_filter_combo.grid(row=0, column=1, padx=(0, 8), sticky="w")
-
-        ctk.CTkButton(
-            rubro_bar, text="↺ Todos", width=80, height=28, font=(F, 11),
-            fg_color=COLORS["bg_input"], hover_color=COLORS["border"],
-            text_color=COLORS["text_muted"], corner_radius=8,
-            command=self._reset_rubro_filter,
-        ).grid(row=0, column=2, padx=(0, 4))
-
         # ── Formulario (solo Admin) ───────────────────────────────────
-        self._frame_inv.grid_rowconfigure(2, weight=1)
+        self._frame_inv.grid_rowconfigure(1, weight=1)
         if self._es_admin:
             self._form = FormPanel(
                 self._frame_inv,
@@ -478,7 +449,7 @@ class InventarioPage(ctk.CTkFrame):
                 refresh_callback=self._load_inventory,
             )
             self._form.grid(
-                row=2, column=0,
+                row=1, column=0,
                 padx=(16, 0), pady=(4, 16), sticky="nsew",
             )
             self._form.configure(width=300)
@@ -487,7 +458,7 @@ class InventarioPage(ctk.CTkFrame):
         col = 1 if self._es_admin else 0
         self._table = InventoryTable(self._frame_inv)
         self._table.grid(
-            row=2, column=col,
+            row=1, column=col,
             padx=(8 if self._es_admin else 16, 16),
             pady=(4, 16), sticky="nsew",
         )
@@ -522,7 +493,30 @@ class InventarioPage(ctk.CTkFrame):
 
     def _build_action_buttons(self):
         btn_bar = ctk.CTkFrame(self._table, fg_color="transparent")
-        btn_bar.grid(row=0, column=0, padx=16, pady=(14, 6), sticky="e")
+        btn_bar.grid(row=0, column=0, padx=16, pady=(10, 4), sticky="ew")
+
+        # ── Selector de rubro (izquierda del btn_bar) ──────────────────
+        ctk.CTkLabel(btn_bar, text="📂", font=(F, 14),
+                     text_color=COLORS["text_muted"]).pack(side="left", padx=(0, 4))
+        rubro_values = self._get_rubro_values()
+        self._rubro_filter_combo = ctk.CTkOptionMenu(
+            btn_bar,
+            variable=self._rubro_var,
+            values=rubro_values,
+            font=(F, 11),
+            width=160,
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["accent"],
+            corner_radius=8,
+            command=lambda _: self._on_rubro_filter_change(),
+        )
+        self._rubro_filter_combo.pack(side="left", padx=(0, 4))
+
+        # Separador visual
+        ctk.CTkFrame(btn_bar, fg_color=COLORS["border"], width=1, height=28
+                     ).pack(side="left", padx=8)
 
         ctk.CTkButton(
             btn_bar, text="🔍 Ver Detalle",
