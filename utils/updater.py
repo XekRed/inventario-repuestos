@@ -196,13 +196,19 @@ def check_for_release() -> dict:
         release_name = data.get("name", latest_tag)
         release_body = data.get("body", "Sin notas de versión.")
 
-        result["latest_tag"]   = latest_tag
-        result["release_name"] = release_name
+        result["latest_tag"]    = latest_tag
+        result["release_name"]  = release_name
         result["release_notes"] = release_body[:400] if release_body else "—"
 
         if _parse_version(latest_tag) > _parse_version(local_v):
             result["has_update"] = True
 
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # Repositorio sin releases publicados todavía
+            result["error"] = "Aún no hay Releases publicados en GitHub. Publica uno desde tu PC para activar las actualizaciones."
+        else:
+            result["error"] = f"Error HTTP {e.code}: {e.reason}"
     except urllib.error.URLError as e:
         result["error"] = f"Sin conexión a internet: {e.reason}"
     except Exception as e:
@@ -433,8 +439,16 @@ class UpdaterWindow(ctk.CTkToplevel):
 
         if result["error"]:
             self._progress.set(0)
-            self._lbl_remote.configure(text="Sin conexión", text_color=COLORS["danger"])
-            self._lbl_status.configure(text=f"⚠️  {result['error']}", text_color=COLORS["warn"])
+            # Distinguir: sin releases (info) vs sin internet (error)
+            no_releases = "Aún no hay Releases" in result["error"]
+            if no_releases:
+                self._lbl_remote.configure(text="Sin releases aún", text_color=COLORS["muted"])
+                self._lbl_status.configure(
+                    text=f"ℹ️  {result['error']}", text_color=COLORS["muted"])
+            else:
+                self._lbl_remote.configure(text="Sin conexión", text_color=COLORS["danger"])
+                self._lbl_status.configure(
+                    text=f"⚠️  {result['error']}", text_color=COLORS["warn"])
             return
 
         latest = result["latest_tag"]
@@ -457,6 +471,7 @@ class UpdaterWindow(ctk.CTkToplevel):
             self._lbl_status.configure(
                 text="✅  ¡Tienes la versión más reciente instalada!",
                 text_color=COLORS["success"])
+
 
     def _do_update(self):
         if self._updating or not self._check_result:
