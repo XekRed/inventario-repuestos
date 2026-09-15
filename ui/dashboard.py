@@ -1548,13 +1548,14 @@ class DashboardApp(ctk.CTk):
     """
 
     NAV_ITEMS = [
-        ("📊",  "Reportes",           "reportes",       False),
-        ("🛒",  "Punto de Venta",     "pos",            True),   # abre ventana
-        ("📦",  "Inventario",         "inventario",     False),
-        ("🏭",  "Proveedores",        "proveedores",    False),
-        ("📋",  "Deudores",           "deudores",       False),
-        ("🔔",  "Notificaciones",     "notificaciones", False),
-        ("⚙️",  "Configuración",      "configuracion",  False),
+        ("📊",  "Reportes",           "reportes",         False, False),
+        ("🛒",  "Punto de Venta",     "pos",              True,  False),   # abre ventana
+        ("📦",  "Inventario",         "inventario",       False, False),
+        ("🏭",  "Proveedores",        "proveedores",      False, False),
+        ("📋",  "Deudores",           "deudores",         False, False),
+        ("💸",  "Gastos Diarios",     "gastos_diarios",   False, True),   # próximamente
+        ("🔔",  "Notificaciones",     "notificaciones",   False, False),
+        ("⚙️",  "Configuración",      "configuracion",    False, False),
     ]
 
     def __init__(self):
@@ -1690,21 +1691,38 @@ class DashboardApp(ctk.CTk):
         )
 
         # Botones de navegación
-        for i, (icono, label, key, is_external) in enumerate(self.NAV_ITEMS):
-            btn = ctk.CTkButton(
-                self._sidebar,
-                text=f"  {icono}  {label}",
-                font=(F, 13),
-                height=44,
-                anchor="w",
-                fg_color=COLORS["sidebar_btn"] if not is_external else "#1a2a1a",
-                hover_color=COLORS["sidebar_active"],
-                text_color=COLORS.get("sidebar_text", "#e0e0e0") if not is_external else COLORS["success"],
-                corner_radius=10,
-                command=lambda k=key: self._navigate(k),
-            )
+        for i, (*nav_data, is_coming_soon) in enumerate(self.NAV_ITEMS):
+            icono, label, key, is_external = nav_data
+            if is_coming_soon:
+                # Botón deshabilitado con estilo "próximamente"
+                btn = ctk.CTkButton(
+                    self._sidebar,
+                    text=f"  {icono}  {label}  🔒",
+                    font=(F, 13),
+                    height=44,
+                    anchor="w",
+                    fg_color="transparent",
+                    hover_color=COLORS["sidebar_btn"],
+                    text_color=COLORS["border"],
+                    corner_radius=10,
+                    state="disabled",
+                    command=lambda: None,
+                )
+            else:
+                btn = ctk.CTkButton(
+                    self._sidebar,
+                    text=f"  {icono}  {label}",
+                    font=(F, 13),
+                    height=44,
+                    anchor="w",
+                    fg_color=COLORS["sidebar_btn"] if not is_external else "#1a2a1a",
+                    hover_color=COLORS["sidebar_active"],
+                    text_color=COLORS.get("sidebar_text", "#e0e0e0") if not is_external else COLORS["success"],
+                    corner_radius=10,
+                    command=lambda k=key: self._navigate(k),
+                )
             btn.grid(row=i + 2, column=0, padx=10, pady=3, sticky="ew")
-            if not is_external:
+            if not is_external and not is_coming_soon:
                 self._nav_buttons[key] = btn
 
         # Badge de usuario (parte baja del sidebar)
