@@ -763,8 +763,8 @@ class ReportesPage(ctk.CTkFrame):
         ctk.CTkButton(
             btn_frame, text="🏁  Realizar Cierre de Día (PDF)",
             font=(F, 12, "bold"), height=38, width=200,
-            fg_color="#1e3820", hover_color=COLORS["success"],
-            text_color=COLORS["success"], corner_radius=10,
+            fg_color=COLORS["success"], hover_color=COLORS["accent"],
+            text_color="#ffffff", corner_radius=10,
             command=self._generar_pdf,
         ).pack()
 
@@ -791,7 +791,7 @@ class ReportesPage(ctk.CTkFrame):
         cards = [
             ("Ventas hoy",    str(resumen["total_ventas"]),       COLORS["accent"],   "🧾"),
             ("Total USD",     f"${resumen['total_usd']:,.2f}",    COLORS["success"],  "💵"),
-            ("Total Bs.",     f"Bs. {resumen['total_bs']:,.2f}",  "#f5c518",          "💰"),
+            ("Total Bs.",     f"Bs. {resumen['total_bs']:,.2f}",  COLORS["accent"],          "💰"),
         ]
         for col, (titulo, valor, color, icono) in enumerate(cards):
             card = ctk.CTkFrame(self._kpi_frame, fg_color=COLORS["bg_card"], corner_radius=16)
@@ -1795,7 +1795,7 @@ class DashboardApp(ctk.CTk):
         else:
             btn.configure(
                 text="  🔔  Notificaciones",
-                text_color=COLORS["text_primary"],
+                text_color=COLORS.get("sidebar_text", "#e0e0e0"),
             )
 
 

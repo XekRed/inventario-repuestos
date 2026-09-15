@@ -92,7 +92,7 @@ class TasaPanel(ctk.CTkFrame):
         self._var = ctk.StringVar(value="1.00")
         self._entry = ctk.CTkEntry(self, textvariable=self._var, width=130, height=36,
                                     font=(FONT, 14, "bold"), fg_color=C["input"],
-                                    border_color=C["border"], text_color=C["gold"],
+                                    border_color=C["accent"], text_color=C["accent"],
                                     corner_radius=8, justify="center")
         self._entry.grid(row=0, column=1, padx=(0, 10), pady=14)
         self._entry.bind("<Return>", lambda _: self._on_guardar())
@@ -514,10 +514,10 @@ class CartPanel(ctk.CTkFrame):
         self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
         # ── Hint rapido ───────────────────────────────────────────────
-        hint = ctk.CTkFrame(self, fg_color=C["sidebar"], corner_radius=8)
+        hint = ctk.CTkFrame(self, fg_color=C["accent"], corner_radius=8)
         hint.grid(row=3, column=0, padx=14, pady=(0, 2), sticky="ew")
         ctk.CTkLabel(hint, text="📝 Clic en Precio o Cantidad para editar  │  Doble-clic en Nombre para quitar",
-                     font=(FONT, 10), text_color=C["muted"]).grid(row=0, column=0, padx=12, pady=5, sticky="w")
+                     font=(FONT, 10), text_color="#ffffff").grid(row=0, column=0, padx=12, pady=5, sticky="w")
 
         # ── Totales + botones ─────────────────────────────────────────
         self._build_totales()
@@ -543,11 +543,11 @@ class CartPanel(ctk.CTkFrame):
         sep = ctk.CTkFrame(tf, fg_color=C["border"], width=2)
         sep.grid(row=0, column=2, rowspan=3, padx=8, pady=8, sticky="ns")
 
-        ctk.CTkLabel(tf, text="TOTAL Bs (VES):", font=(FONT, 11, "bold"), text_color=C["muted"], anchor="w").grid(
+        ctk.CTkLabel(tf, text="TOTAL Bs (VES):", font=(FONT, 11, "bold"), text_color=C["text"], anchor="w").grid(
             row=0, column=3, padx=(8, 18), pady=(12, 2), sticky="w")
-        self._lbl_ves = ctk.CTkLabel(tf, text="Bs. 0.00", font=(FONT, 18, "bold"), text_color=C["gold"], anchor="w")
+        self._lbl_ves = ctk.CTkLabel(tf, text="Bs. 0.00", font=(FONT, 18, "bold"), text_color=C["accent"], anchor="w")
         self._lbl_ves.grid(row=1, column=3, padx=(8, 18), pady=(4, 4), sticky="w")
-        self._lbl_tasa_info = ctk.CTkLabel(tf, text="Tasa: Bs. 1.00 / USD", font=(FONT, 9), text_color=C["muted"])
+        self._lbl_tasa_info = ctk.CTkLabel(tf, text="Tasa: Bs. 1.00 / USD", font=(FONT, 9), text_color=C["text"])
         self._lbl_tasa_info.grid(row=2, column=3, padx=(8, 18), pady=(0, 12), sticky="w")
 
         btn_row = ctk.CTkFrame(tf, fg_color="transparent")
@@ -578,8 +578,8 @@ class CartPanel(ctk.CTkFrame):
 
         self._btn_fiado = ctk.CTkButton(
             btn_row, text="💳  Crédito", font=(FONT, 13, "bold"), height=42,
-            fg_color="#2a1a0a", hover_color=C["warning"],
-            text_color=C["warning"], corner_radius=10, state="disabled",
+            fg_color=C["warning"], hover_color="#c97a2a",
+            text_color="#ffffff", corner_radius=10, state="disabled",
             command=self._on_abrir_fiado)
         self._btn_fiado.grid(row=0, column=3, padx=(0, 0), sticky="ew")
 
