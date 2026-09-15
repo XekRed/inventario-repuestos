@@ -28,7 +28,7 @@ from ui.app import (  # noqa: E402
     COLORS, FONT_FAMILY,
 )
 from ui.proveedores import ProveedoresPage  # noqa: E402
-from utils.updater import abrir_actualizador, get_local_version  # noqa: E402
+from utils.updater import abrir_actualizador, abrir_rollback, get_local_version, check_for_release_cached  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tema — se aplica al arrancar según lo guardado en config/theme.json
@@ -1399,6 +1399,17 @@ class NotificacionesPage(ctk.CTkFrame):
             ctk.CTkLabel(c, text=etiq, font=(F, 10), text_color=COLORS["text_muted"],
                          justify="center").pack(padx=12, pady=(2, 10))
 
+        # Verificar actualización disponible (en background, no bloquea UI)
+        try:
+            import threading as _t
+            def _check_update_bg():
+                result = check_for_release_cached()
+                if result.get("has_update"):
+                    self.after(0, self._show_update_banner, result["latest_tag"])
+            _t.Thread(target=_check_update_bg, daemon=True).start()
+        except Exception:
+            pass
+
         # Empty state
         if total == 0:
             empty = ctk.CTkFrame(self._scroll, fg_color=COLORS["bg_card"], corner_radius=16)
@@ -1431,12 +1442,32 @@ class NotificacionesPage(ctk.CTkFrame):
             row_i += 1
             for p in stock_bajo:
                 self._stock_card(row_i, p["nombre"], p["cantidad"], p.get("sku", ""), p.get("stock_minimo", 5))
+
                 row_i += 1
 
     def _dismiss(self, key: str):
         """Descarta una alerta individual por su clave."""
         self._dismissed.add(key)
         self.refresh()
+
+    def _show_update_banner(self, tag: str):
+        """Inserta banner de actualización disponible en el scroll de alertas."""
+        try:
+            banner = ctk.CTkFrame(self._scroll, fg_color="#0a1e3a", corner_radius=14)
+            banner.grid(row=999, column=0, padx=24, pady=(0, 12), sticky="ew")
+            banner.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(banner, text="🚀", font=(F, 28)).grid(
+                row=0, column=0, padx=(16, 10), pady=16, sticky="w")
+            info_f = ctk.CTkFrame(banner, fg_color="transparent")
+            info_f.grid(row=0, column=1, pady=16, sticky="w")
+            ctk.CTkLabel(info_f, text=f"Nueva versión {tag} disponible",
+                         font=(F, 14, "bold"), text_color="#4f8ef7",
+                         anchor="w").pack(anchor="w")
+            ctk.CTkLabel(info_f, text="Ve a Configuración → Actualizaciones para instalarla.",
+                         font=(F, 11), text_color=COLORS["text_muted"],
+                         anchor="w").pack(anchor="w")
+        except Exception:
+            pass
 
     def _section_header(self, row, titulo, color):
         bg = "#2d0e0e" if color == "#e05c5c" else "#2d1800"
@@ -1872,6 +1903,7 @@ class ConfiguracionPage(ctk.CTkFrame):
         self._build_temas()
         self._build_apariencia()
         self._build_actualizaciones()
+        self._build_rollback()
         self._build_info()
 
     # ------------------------------------------------------------------
@@ -1955,6 +1987,7 @@ class ConfiguracionPage(ctk.CTkFrame):
         self._build_temas()
         self._build_apariencia()
         self._build_actualizaciones()
+        self._build_rollback()
         self._build_info()
 
     def _reiniciar_app(self):
@@ -2080,7 +2113,41 @@ class ConfiguracionPage(ctk.CTkFrame):
             fg_color=COLORS["accent"], hover_color="#3a6fd8",
             text_color="#fff", corner_radius=12,
             command=self._on_buscar_actualizacion,
-        ).grid(row=3, column=0, columnspan=2, padx=24, pady=(12, 24), sticky="w")
+        ).grid(row=3, column=0, columnspan=2, padx=24, pady=(12, 8), sticky="w")
+
+    # ------------------------------------------------------------------
+    def _build_rollback(self):
+        self._seccion(self._scroll, 10, "⏪  Rollback — Deshacer Última Actualización")
+
+        card = ctk.CTkFrame(self._scroll, fg_color="#1a0505", corner_radius=16,
+                             border_width=1, border_color="#4a1010")
+        card.grid(row=11, column=0, padx=28, pady=(0, 8), sticky="ew")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(card, text="⏪", font=(F, 48)).grid(
+            row=0, column=0, rowspan=2, padx=(24, 16), pady=20, sticky="n")
+
+        from utils.updater import _load_rollback_tag
+        prev_tag = _load_rollback_tag()
+        prev_txt = prev_tag if prev_tag else "No hay versión anterior guardada"
+
+        ctk.CTkLabel(card, text="Botón de Pánico — Rollback",
+                     font=(F, 15, "bold"), text_color="#e05c5c",
+                     anchor="w").grid(row=0, column=1, padx=(0, 20), pady=(20, 2), sticky="w")
+        ctk.CTkLabel(card, text=f"Versión anterior disponible: {prev_txt}\n"
+                                 "Revierte el código al estado anterior. Datos y configuración intactos.",
+                     font=(F, 11), text_color=COLORS["text_muted"],
+                     anchor="w", justify="left").grid(
+            row=1, column=1, padx=(0, 20), pady=(0, 20), sticky="w")
+
+        ctk.CTkButton(
+            card, text="🔴  Deshacer última actualización (Rollback)",
+            font=(F, 13, "bold"), height=42,
+            fg_color="#b91c1c", hover_color="#991b1b",
+            text_color="#fff", corner_radius=12,
+            state="normal" if prev_tag else "disabled",
+            command=self._on_rollback,
+        ).grid(row=2, column=0, columnspan=2, padx=24, pady=(0, 24), sticky="w")
 
     # ------------------------------------------------------------------
     def _build_info(self):
@@ -2122,3 +2189,6 @@ class ConfiguracionPage(ctk.CTkFrame):
 
     def _on_buscar_actualizacion(self):
         abrir_actualizador(self._dash)
+
+    def _on_rollback(self):
+        abrir_rollback(self._dash)
