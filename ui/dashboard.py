@@ -1555,7 +1555,6 @@ class DashboardApp(ctk.CTk):
         ("📋",  "Deudores",           "deudores",         False, False),
         ("💸",  "Gastos Diarios",     "gastos_diarios",   False, True),   # próximamente
         ("🔔",  "Notificaciones",     "notificaciones",   False, False),
-        ("⚙️",  "Configuración",      "configuracion",    False, False),
     ]
 
     def __init__(self):
@@ -1709,15 +1708,16 @@ class DashboardApp(ctk.CTk):
                     command=lambda: None,
                 )
             else:
+                is_pos = (key == "pos")
                 btn = ctk.CTkButton(
                     self._sidebar,
                     text=f"  {icono}  {label}",
                     font=(F, 13),
                     height=44,
                     anchor="w",
-                    fg_color=COLORS["sidebar_btn"] if not is_external else "#1a2a1a",
-                    hover_color=COLORS["sidebar_active"],
-                    text_color=COLORS.get("sidebar_text", "#e0e0e0") if not is_external else COLORS["success"],
+                    fg_color=COLORS["accent"] if is_pos else COLORS["sidebar_btn"],
+                    hover_color=COLORS["accent_hover"] if is_pos else COLORS["sidebar_active"],
+                    text_color="#ffffff",
                     corner_radius=10,
                     command=lambda k=key: self._navigate(k),
                 )
@@ -1725,20 +1725,35 @@ class DashboardApp(ctk.CTk):
             if not is_external and not is_coming_soon:
                 self._nav_buttons[key] = btn
 
-        # Badge de usuario (parte baja del sidebar)
+        # Badge de usuario + botón de Configuración (parte baja del sidebar)
         rol_color = COLORS["accent"] if self._rol == "Admin" else COLORS["success"]
         badge = ctk.CTkFrame(self._sidebar, fg_color=COLORS["bg_card"], corner_radius=12)
-        badge.grid(row=10, column=0, padx=10, pady=(0, 16), sticky="sew")
+        badge.grid(row=len(self.NAV_ITEMS) + 3, column=0, padx=10, pady=(0, 16), sticky="sew")
+
+        # Botón de configuración en la parte superior del badge
+        ctk.CTkButton(
+            badge, text="⚙️  Configuración",
+            font=(F, 11, "bold"), height=32,
+            fg_color=COLORS["sidebar_btn"],
+            hover_color=COLORS["sidebar_active"],
+            text_color=COLORS.get("sidebar_text", "#e0e0e0"),
+            corner_radius=8, anchor="w",
+            command=lambda: self._navigate("configuracion"),
+        ).pack(fill="x", padx=8, pady=(10, 4))
+
+        # Separador
+        ctk.CTkFrame(badge, fg_color=COLORS["border"], height=1).pack(fill="x", padx=8, pady=4)
 
         ctk.CTkLabel(
             badge, text=f"👤  {self._usuario_nombre}",
             font=(F, 12, "bold"), text_color=COLORS["text_primary"], anchor="w",
-        ).pack(padx=14, pady=(12, 2), anchor="w")
+        ).pack(padx=14, pady=(6, 2), anchor="w")
 
         ctk.CTkLabel(
             badge, text=self._rol,
             font=(F, 11), text_color=rol_color, anchor="w",
-        ).pack(padx=14, pady=(0, 12), anchor="w")
+        ).pack(padx=14, pady=(0, 10), anchor="w")
+
 
     def _build_pages(self):
         """Crea todos los frames de página y los oculta."""
