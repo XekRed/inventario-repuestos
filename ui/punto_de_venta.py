@@ -283,13 +283,16 @@ class ProductSearch(ctk.CTkFrame):
         self._listbox.delete(0, "end")
         for i, r in enumerate(self._resultados):
             if r.get("is_combo"):
-                self._listbox.insert("end", f"  🎁 {r['nombre']} (-{r['descuento']:.0f}%)")
+                self._listbox.insert("end", f"  {chr(127873)} {r['nombre']} (-{r['descuento']:.0f}%)")
                 self._listbox.itemconfig(i, {'fg': C["gold"]})
             else:
-                stock_tag = "" if r["cantidad"] > 0 else "  ⚠️ SIN STOCK"
-                self._listbox.insert("end", f"  {r['nombre']}{stock_tag}")
+                modelo = r.get("modelo", "") or ""
+                modelo_tag = f" \u2014 {modelo}" if modelo and modelo not in ("(N/A)", "N/A") else ""
+                stock_tag = "" if r["cantidad"] > 0 else "  SIN STOCK"
+                self._listbox.insert("end", f"  {r['nombre']}{modelo_tag}{stock_tag}")
                 if r["cantidad"] <= 0:
                     self._listbox.itemconfig(i, {'fg': C["danger"]})
+
 
     def _on_select(self, _event=None):
         sel = self._listbox.curselection()
@@ -367,7 +370,9 @@ class ProductSearch(ctk.CTkFrame):
                 ctk.CTkButton(popup, text="Cerrar", fg_color=C["input"], text_color=C["text"],
                               hover_color=C["border"], command=popup.destroy).pack(pady=15)
         else:
-            self._agregar_seleccionado()
+            from ui.app import DetailModal
+            from database.inventario_db import InventarioDAO as _IDAO
+            DetailModal(self.winfo_toplevel(), r, _IDAO(), on_updated=None)
 
     def mostrar_info_id(self, p_id: int):
         for r in self._dao.listar_todos():
@@ -661,6 +666,7 @@ class CartPanel(ctk.CTkFrame):
             "id":           record["id"],
             "sku":          record.get("sku", "COMBO" if is_combo else ""),
             "nombre":       record.get("nombre", ""),
+            "modelo":       record.get("modelo", "") or "",
             "precio_venta": precio,
             "precio_base":  p_base,
             "qty":          qty,
@@ -757,8 +763,10 @@ class CartPanel(ctk.CTkFrame):
             precio   = item["precio_venta"]
             subtotal = precio * item["qty"]
             tag = "even" if i % 2 == 0 else "odd"
+            modelo = item.get("modelo", "")
+            nombre_display = f"{item['nombre']} ({modelo})" if modelo and modelo not in ("", "(N/A)", "N/A") else item["nombre"]
             self._tree.insert("", "end", iid=str(i), tags=(tag,), values=(
-                item["nombre"],
+                nombre_display,
                 item["sku"],
                 f"${precio:.2f}",
                 item["qty"],

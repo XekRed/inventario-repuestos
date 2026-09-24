@@ -250,11 +250,10 @@ class FormPanel(ctk.CTkFrame):
 
     _DEFAULTS = {
         "modelo": "(N/A)",
-        "marca":  "(N/A)",
     }
 
-    _REQUIRED_NUMERIC = {"precio_entrada", "precio_venta", "cantidad", "stock_minimo"}
     _REQUIRED_TEXT    = {"nombre", "sku"}
+    _REQUIRED_NUMERIC = {"precio_venta", "cantidad", "stock_minimo"}
 
     def __init__(self, parent, dao, refresh_callback, **kwargs):
         super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=10, **kwargs)
@@ -601,7 +600,8 @@ class FormPanel(ctk.CTkFrame):
                 values["imagen_ruta"] = self._img_ruta
 
         try:
-            values["precio_entrada"] = float(values["precio_entrada"])
+            pe_str = values.get("precio_entrada", "").strip()
+            values["precio_entrada"] = float(pe_str) if pe_str else 0.0
             values["precio_venta"]   = float(values["precio_venta"])
             values["cantidad"]       = int(float(values["cantidad"]))
             values["stock_minimo"]   = max(0, int(float(values.get("stock_minimo", 5))))
@@ -654,7 +654,7 @@ class InventoryTable(ctk.CTkFrame):
     COLUMNS = [
         ("id",             "ID",             50,  "center"),
         ("sku",            "SKU / Código",   140, "w"),
-        ("nombre",         "Nombre",         200, "w"),
+        ("nombre",         "Nombre",         130, "w"),
         ("marca",          "Marca",          110, "w"),
         ("modelo",         "Modelo",         110, "w"),
         ("precio_entrada", "P. Entrada",     90,  "e"),

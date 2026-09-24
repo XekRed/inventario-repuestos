@@ -134,10 +134,13 @@ class CombosPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(form, text="Descuento %", font=(F, 11), text_color=COLORS["text_muted"]
                      ).grid(row=3, column=0, padx=(14, 6), pady=4, sticky="w")
+        self._pct_var = ctk.StringVar(value="0")
+        self._pct_var.trace_add("write", lambda *_: self._refresh_items_display())
+        
         self._cdesc_pct = ctk.CTkEntry(form, height=32, width=80, font=(F, 12),
+                                       textvariable=self._pct_var,
                                        fg_color=COLORS["bg_input"], border_color=COLORS["border"],
                                        text_color=COLORS["accent"], corner_radius=8)
-        self._cdesc_pct.insert(0, "0")
         self._cdesc_pct.grid(row=3, column=1, padx=(0, 14), pady=4, sticky="w")
 
         # ── Product picker ────────────────────────────────────────────
@@ -249,12 +252,15 @@ class CombosPanel(ctk.CTkFrame):
             ctk.CTkLabel(self._items_frame, text="Sin productos aún",
                          font=(F, 10), text_color=COLORS["text_muted"]).grid(padx=8, pady=6)
             return
+        total_bruto = 0.0
         for i, item in enumerate(self._pending_items):
             row_f = ctk.CTkFrame(self._items_frame, fg_color="transparent")
             row_f.grid(row=i, column=0, padx=6, pady=2, sticky="ew")
             row_f.grid_columnconfigure(0, weight=1)
+            subtotal = item['precio_venta'] * item['cantidad']
+            total_bruto += subtotal
             ctk.CTkLabel(row_f,
-                         text=f"  {item['nombre']}  ×{item['cantidad']}  = ${item['precio_venta']*item['cantidad']:.2f}",
+                         text=f"  {item['nombre']}  ×{item['cantidad']}  = ${subtotal:.2f}",
                          font=(F, 10), text_color=COLORS["text_primary"], anchor="w"
                          ).grid(row=0, column=0, sticky="w")
             idx = i
@@ -262,6 +268,22 @@ class CombosPanel(ctk.CTkFrame):
                           fg_color=COLORS["danger"], text_color="#fff", corner_radius=4,
                           command=lambda x=idx: self._remove_item(x)
                           ).grid(row=0, column=1, padx=(4, 0))
+                          
+        # Calculate totals
+        try:
+            pct = max(0.0, min(100.0, float(self._pct_var.get().strip() or "0")))
+        except ValueError:
+            pct = 0.0
+            
+        total_descuento = total_bruto * (1 - pct / 100)
+        
+        # Display Totals
+        f_totals = ctk.CTkFrame(self._items_frame, fg_color="transparent")
+        f_totals.grid(row=len(self._pending_items), column=0, padx=6, pady=(10, 2), sticky="ew")
+        
+        ctk.CTkLabel(f_totals, text=f"Suma: ${total_bruto:.2f}", font=(F, 11), text_color=COLORS["text_muted"]).pack(anchor="e")
+        ctk.CTkLabel(f_totals, text=f"Total: ${total_descuento:.2f}", font=(F, 12, "bold"), text_color=COLORS["success"]).pack(anchor="e")
+
 
     def _remove_item(self, idx):
         if 0 <= idx < len(self._pending_items):
@@ -666,19 +688,29 @@ class InventarioPage(ctk.CTkFrame):
         entry_qty.pack(pady=5)
         entry_qty.insert(0, "0")
         
-        ctk.CTkLabel(popup, text="Precio Compra (Unidad) $:", font=(F, 12)).pack(pady=(10, 0))
+        ctk.CTkLabel(popup, text="Precio Compra (Unidad) $ [Opcional]:", font=(F, 12)).pack(pady=(10, 0))
         entry_cost = ctk.CTkEntry(popup, font=(F, 12), justify="center")
         entry_cost.pack(pady=5)
-        entry_cost.insert(0, "0.00")
+        entry_cost.insert(0, "")
         
         def save():
             try:
                 q = int(entry_qty.get())
-                c = float(entry_cost.get())
                 if q <= 0: return
+                
                 old_q = record["cantidad"]
                 old_c = record["precio_entrada"]
                 old_v = record.get("precio_venta", 0.0)
+                
+                cost_str = entry_cost.get().strip()
+                if not cost_str:
+                    # Sin precio de compra, solo aumenta la cantidad sin cambiar costo/venta
+                    self._dao.actualizar(record_id, cantidad=old_q + q)
+                    self._load_inventory()
+                    popup.destroy()
+                    return
+                
+                c = float(cost_str)
                 
                 # Calcular el porcentaje de ganancia original (markup)
                 if old_c > 0:

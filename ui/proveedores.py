@@ -147,7 +147,7 @@ def generar_imagen_pedido(nombre_empresa, logo_empresa_ruta,
     draw.text((30 + logo_offset, y + 60), f"Fecha: {fecha_str}",  font=f_sub,   fill="#6b7099")
     draw.rectangle([(30, HEADER_H - 12), (W - 30, HEADER_H - 10)], fill="#2a2e45")
 
-    COLS = [("Codigo",100),("Nombre",200),("Tipo",100),("Precio",90),("Cantidad",80),("Total",90)]
+    COLS = [("Codigo", 90), ("Nombre", 140), ("Tipo", 250), ("Precio", 90), ("Cantidad", 80), ("Total", 90)]
     y_th = HEADER_H + 4; x_cur = 30
     draw.rectangle([(25, y_th - 4), (W - 25, y_th + TABLE_HEADER_H - 4)], fill="#1a1e30")
     for col_name, col_w in COLS:
