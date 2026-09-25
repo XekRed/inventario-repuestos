@@ -45,6 +45,7 @@ PROTECTED = [
     "facturas/",
     "config/tasa.json",
     "config/theme.json",
+    "config/gh_token.txt",   # token de GitHub (NO subir al repo)
     "VERSION",  # lo actualizamos manualmente nosotros
 ]
 
@@ -74,6 +75,30 @@ def _parse_version(v: str) -> tuple:
         return tuple(int(x) for x in clean.split("."))
     except Exception:
         return (0, 0, 0)
+
+
+def _get_gh_token() -> str | None:
+    """Lee el token de GitHub desde config/gh_token.txt o via git credential."""
+    # 1. Archivo dedicado (más confiable en la PC del trabajo)
+    token_file = APP_DIR / "config" / "gh_token.txt"
+    if token_file.exists():
+        t = token_file.read_text(encoding="utf-8").strip()
+        if t:
+            return t
+    # 2. Fallback: git credential del sistema (funciona en la PC de desarrollo)
+    try:
+        r = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True, text=True, timeout=5,
+            cwd=str(APP_DIR)
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith("password="):
+                return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return None
 
 
 def get_local_version() -> str:
@@ -184,11 +209,14 @@ def check_for_release() -> dict:
         "error": None,
     }
     try:
-        req = urllib.request.Request(
-            GITHUB_API_URL,
-            headers={"Accept": "application/vnd.github+json",
-                     "User-Agent": "RepuestosDB-Updater/1.0"},
-        )
+        hdrs = {
+            "Accept":     "application/vnd.github+json",
+            "User-Agent": "RepuestosDB-Updater/1.0",
+        }
+        token = _get_gh_token()
+        if token:
+            hdrs["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(GITHUB_API_URL, headers=hdrs)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
 

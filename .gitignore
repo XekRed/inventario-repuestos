@@ -60,6 +60,7 @@ $RECYCLE.BIN/
 # --- Config local (si tiene credenciales) ---------------------
 config/config_local.ini
 config/*.secret
+config/gh_token.txt
 /scratch/
 /facturas/
 
